@@ -6,17 +6,27 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
-	"github.com/Ireoo/sixin-server/pkg/base"
-	"github.com/Ireoo/sixin-server/pkg/database"
-	"github.com/Ireoo/sixin-server/pkg/socket"
+	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/database"
+	"github.com/Ireoo/sixin-server/socket"
 	socketio "github.com/googollee/go-socket.io"
 )
 
 func main() {
+	// 创建必要的文件夹
+	folders := []string{"data", "image", "avatar", "audio", "video", "attachment", "emoticon", "url", "database"}
+	for _, folder := range folders {
+		path := filepath.Join("data", folder)
+		if err := os.MkdirAll(path, os.ModePerm); err != nil {
+			log.Fatalf("创建文件夹 %s 失败: %v", path, err)
+		}
+	}
+
 	// 初始化数据库
-	if err := database.InitDB(); err != nil {
+	if err := database.InitSqliteDB(); err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
 
@@ -27,8 +37,16 @@ func main() {
 	} else {
 		// 创建 base.Base 实例
 		baseInstance := &base.Base{}
+
+		// 用户可以选择数据库类型
+		dbType := database.SQLite // 或 database.MongoDB
+
+		err := database.InitDatabase(dbType, "")
+		if err != nil {
+			log.Fatalf("初始化数据库失败: %v", err)
+		}
 		// 获取数据库连接
-		db := database.GetDB()
+		db := database.GetSqliteDB()
 		// 设置Socket.IO事件处理
 		socket.SetupSocketHandlers(server, db, baseInstance)
 		log.Println("Socket.IO服务器创建成功")

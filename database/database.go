@@ -3,86 +3,49 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 
-	_ "modernc.org/sqlite" // 使用纯 Go 实现的 SQLite 驱动
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var DB *sql.DB
+type DatabaseType string
 
-type User struct {
-	ID        uint   `gorm:"primaryKey;autoIncrement"`
-	WechatID  string `gorm:"uniqueIndex"`
-	Name      string
-	Phone     string `gorm:"type:json"`
-	Province  string
-	Signature string
-	Type      int
-	Weixin    string
-	Alias     string
-	Avatar    string
-	City      string
-	Friend    bool
-	Gender    string
+const (
+	SQLite      DatabaseType = "sqlite"
+	MongoDBType DatabaseType = "mongodb"
+)
+
+type Database interface {
+	Init() error
+	Close() error
 }
 
-type Room struct {
-	ID           uint   `gorm:"primaryKey;autoIncrement"`
-	RoomID       string `gorm:"uniqueIndex"`
-	Topic        string
-	OwnerID      string
-	MemberIDList string `gorm:"type:json"`
-	Avatar       string
-	AdminIDList  string `gorm:"type:json"`
+type SQLiteDB struct {
+	DB *sql.DB
 }
 
-type RoomByUser struct {
-	ID    uint `gorm:"primaryKey;autoIncrement"`
-	Name  string
-	Alias string
-	Topic string
+type MongoDB struct {
+	Client *mongo.Client
 }
 
-type Message struct {
-	ID            uint   `gorm:"primaryKey;autoIncrement"`
-	MsgID         string `gorm:"uniqueIndex"`
-	TalkerID      string
-	ListenerID    string
-	Text          string `gorm:"type:text"`
-	Timestamp     int64
-	Type          int
-	RoomID        string
-	MentionIDList string `gorm:"type:json"`
-}
+var CurrentDB Database
 
-func InitDB() error {
-	// 创建必要的文件夹
-	folders := []string{"data", "image", "avatar", "audio", "video", "attachment", "emoticon", "url", "database"}
-	for _, folder := range folders {
-		path := filepath.Join("data", folder)
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			return fmt.Errorf("failed to create folder %s: %v", path, err)
-		}
-	}
-
-	// 连接数据库
+func InitDatabase(dbType DatabaseType, connectionString string) error {
 	var err error
-	DB, err = sql.Open("sqlite", "./database.db")
-	if err != nil {
-		return fmt.Errorf("failed to connect database: %v", err)
+	switch dbType {
+	case SQLite:
+		sqliteDB := &SQLiteDB{}
+		err = sqliteDB.Init()
+		CurrentDB = sqliteDB
+	case MongoDBType:
+		mongoDB := &MongoDB{}
+		err = mongoDB.Init()
+		CurrentDB = mongoDB
+	default:
+		return fmt.Errorf("unsupported database type: %s", dbType)
 	}
-
-	// 测试连接
-	if err = DB.Ping(); err != nil {
-		return fmt.Errorf("failed to ping database: %v", err)
-	}
-
-	fmt.Println("数据库连接成功建立。")
-	return nil
+	return err
 }
 
-// 添加 GetDB 函数
-func GetDB() *sql.DB {
-	return DB
+func GetCurrentDB() Database {
+	return CurrentDB
 }

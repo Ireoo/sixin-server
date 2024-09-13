@@ -3,9 +3,8 @@ package socket
 import (
 	"database/sql"
 	"fmt"
-
 	"github.com/Ireoo/sixin-server/base"
-	"github.com/Ireoo/sixin-server/models"
+	models "github.com/Ireoo/sixin-server/models"
 
 	socketio "github.com/googollee/go-socket.io"
 )
@@ -62,7 +61,6 @@ func handleEmail(s socketio.Conn, msg string) {
 func handleRevokeMsg(s socketio.Conn, id string) {
 	// 实现撤回消息的逻辑
 }
-
 func handleGetChats(s socketio.Conn) {
 	var messages []models.Message
 	rows, err := db.Query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT 400")
