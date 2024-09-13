@@ -1,85 +1,81 @@
 package database
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
-
-	"gorm.io/driver/clickhouse"
-	"gorm.io/driver/mysql"
-	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
-	"gorm.io/driver/sqlserver"
-	"gorm.io/gorm"
+	"go.mongodb.org/mongo-driver/mongo"
+	// "go.mongodb.org/mongo-driver/bson" // 注释掉未使用的导入
+	// "go.mongodb.org/mongo-driver/mongo/options" // 注释掉未使用的导入
 )
 
 type DatabaseType string
 
 const (
-	SQLite     DatabaseType = "sqlite"
-	MySQL      DatabaseType = "mysql"
-	Postgres   DatabaseType = "postgres"
-	SQLServer  DatabaseType = "sqlserver"
-	TiDB       DatabaseType = "tidb"
-	ClickHouse DatabaseType = "clickhouse"
+	SQLite DatabaseType = "sqlite"
+	Mongo  DatabaseType = "mongodb"
 )
 
 type Database interface {
 	Init(connectionString string) error
 	Close() error
-	GetDB() *gorm.DB
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
-type GormDB struct {
-	DB *gorm.DB
+type SQLDatabase struct {
+	DB *sql.DB
+}
+
+type MongoDatabase struct {
+	DB *mongo.Database
+}
+
+// 实现 MongoDB 的查询方法
+func (m *MongoDatabase) Query(collectionName string, filter interface{}) (*mongo.Cursor, error) {
+	collection := m.DB.Collection(collectionName)
+	return collection.Find(context.Background(), filter)
+}
+
+func (m *MongoDatabase) QueryRow(collectionName string, filter interface{}) *mongo.SingleResult {
+	collection := m.DB.Collection(collectionName)
+	return collection.FindOne(context.Background(), filter)
+}
+
+// 实现 SQLiteDB 的查询方法
+func (s *SQLiteDBClinet) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return s.DB.Query(query, args...)
+}
+
+func (s *SQLiteDBClinet) QueryRow(query string, args ...interface{}) *sql.Row {
+	return s.DB.QueryRow(query, args...)
 }
 
 var CurrentDB Database
 
 func InitDatabase(dbType DatabaseType, connectionString string) error {
-	var db *gorm.DB
 	var err error
-
 	switch dbType {
 	case SQLite:
-		db, err = gorm.Open(sqlite.Open(connectionString), &gorm.Config{})
-	case MySQL, TiDB:
-		db, err = gorm.Open(mysql.Open(connectionString), &gorm.Config{})
-	case Postgres:
-		db, err = gorm.Open(postgres.Open(connectionString), &gorm.Config{})
-	case SQLServer:
-		db, err = gorm.Open(sqlserver.Open(connectionString), &gorm.Config{})
-	case ClickHouse:
-		db, err = gorm.Open(clickhouse.Open(connectionString), &gorm.Config{})
+		sqliteDB := &SQLiteDBClinet{}
+		err = sqliteDB.Init(connectionString)
+		if err != nil {
+			return err
+		}
+		CurrentDB = sqliteDB
+	case Mongo:
+		mongoDB := &MongoDBClient{}
+		err = mongoDB.Init(connectionString)
+		if err != nil {
+			return err
+		}
+		CurrentDB = mongoDB
 	default:
-		return fmt.Errorf("不支持的数据库类型: %s", dbType)
+		return fmt.Errorf("unsupported database type: %s", dbType)
 	}
-
-	if err != nil {
-		return fmt.Errorf("连接数据库失败: %w", err)
-	}
-
-	gormDB := &GormDB{DB: db}
-	CurrentDB = gormDB
-	return nil
+	return err
 }
 
 func GetCurrentDB() Database {
 	return CurrentDB
-}
-
-// GormDB 方法实现
-func (g *GormDB) Init(connectionString string) error {
-	// 初始化已经在 InitDatabase 中完成
-	return nil
-}
-
-func (g *GormDB) Close() error {
-	sqlDB, err := g.DB.DB()
-	if err != nil {
-		return err
-	}
-	return sqlDB.Close()
-}
-
-func (g *GormDB) GetDB() *gorm.DB {
-	return g.DB
 }
