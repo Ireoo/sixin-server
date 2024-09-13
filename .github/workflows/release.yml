@@ -1,0 +1,100 @@
+name: 构建和发布
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin, freebsd]
+        goarch:
+          [
+            386,
+            amd64,
+            arm,
+            arm64,
+            ppc64,
+            ppc64le,
+            mips,
+            mipsle,
+            mips64,
+            mips64le,
+            s390x,
+            riscv64,
+          ]
+        exclude:
+          - goos: darwin
+            goarch: 386
+          - goos: darwin
+            goarch: arm
+          - goos: windows
+            goarch: arm
+          - goos: windows
+            goarch: ppc64
+          - goos: windows
+            goarch: ppc64le
+          - goos: windows
+            goarch: mips
+          - goos: windows
+            goarch: mipsle
+          - goos: windows
+            goarch: mips64
+          - goos: windows
+            goarch: mips64le
+          - goos: windows
+            goarch: s390x
+          - goos: windows
+            goarch: riscv64
+    steps:
+      - uses: actions/checkout@v3
+      - name: 设置 Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.20"
+
+      - name: 构建
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          output_name='sixin-server-${{ matrix.goos }}-${{ matrix.goarch }}'
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            output_name+='.exe'
+          fi
+          go build -o $output_name
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: sixin-server-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v3
+
+      - name: 创建 Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }} - ${{ github.event.head_commit.timestamp }}
+          draft: false
+          prerelease: false
+
+      - name: 上传 Release 资产
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            **/sixin-server-*
