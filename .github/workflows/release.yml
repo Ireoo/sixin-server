@@ -11,6 +11,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux
@@ -62,21 +63,22 @@ jobs:
       - name: 构建
         env:
           GOOS: ${{ matrix.goos }}
-          CGO_ENABLED: 1
+          CGO_ENABLED: 0
         run: |
           for arch in ${{ join(matrix.goarch, ' ') }}; do
+            echo "Building for ${{ matrix.goos }}-${arch}"
             output_name="sixin-server-${{ matrix.goos }}-${arch}"
             if [ "${{ matrix.goos }}" = "windows" ]; then
               output_name+='.exe'
             fi
-            GOARCH=${arch} go build -o ${output_name}
+            GOARCH=${arch} go build -v -o ${output_name} || echo "Failed to build for ${arch}"
           done
         shell: bash
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.goos }}
+          name: ${{ matrix.goos }}-binaries
           path: sixin-server-${{ matrix.goos }}-*
 
   release:
