@@ -3,40 +3,83 @@ package database
 import (
 	"fmt"
 
+	"gorm.io/driver/clickhouse"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/driver/sqlite"
+	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
 )
 
 type DatabaseType string
 
 const (
-	SQLite DatabaseType = "sqlite"
+	SQLite     DatabaseType = "sqlite"
+	MySQL      DatabaseType = "mysql"
+	Postgres   DatabaseType = "postgres"
+	SQLServer  DatabaseType = "sqlserver"
+	TiDB       DatabaseType = "tidb"
+	ClickHouse DatabaseType = "clickhouse"
 )
 
 type Database interface {
-	Init() error
+	Init(connectionString string) error
 	Close() error
 	GetDB() *gorm.DB
 }
 
-type SQLiteDB struct {
+type GormDB struct {
 	DB *gorm.DB
 }
 
 var CurrentDB Database
 
 func InitDatabase(dbType DatabaseType, connectionString string) error {
+	var db *gorm.DB
 	var err error
+
 	switch dbType {
 	case SQLite:
-		sqliteDB := &SQLiteDB{}
-		err = sqliteDB.Init()
-		CurrentDB = sqliteDB
+		db, err = gorm.Open(sqlite.Open(connectionString), &gorm.Config{})
+	case MySQL, TiDB:
+		db, err = gorm.Open(mysql.Open(connectionString), &gorm.Config{})
+	case Postgres:
+		db, err = gorm.Open(postgres.Open(connectionString), &gorm.Config{})
+	case SQLServer:
+		db, err = gorm.Open(sqlserver.Open(connectionString), &gorm.Config{})
+	case ClickHouse:
+		db, err = gorm.Open(clickhouse.Open(connectionString), &gorm.Config{})
 	default:
 		return fmt.Errorf("不支持的数据库类型: %s", dbType)
 	}
-	return err
+
+	if err != nil {
+		return fmt.Errorf("连接数据库失败: %w", err)
+	}
+
+	gormDB := &GormDB{DB: db}
+	CurrentDB = gormDB
+	return nil
 }
 
 func GetCurrentDB() Database {
 	return CurrentDB
+}
+
+// GormDB 方法实现
+func (g *GormDB) Init(connectionString string) error {
+	// 初始化已经在 InitDatabase 中完成
+	return nil
+}
+
+func (g *GormDB) Close() error {
+	sqlDB, err := g.DB.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+func (g *GormDB) GetDB() *gorm.DB {
+	return g.DB
 }
