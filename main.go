@@ -1,59 +1,65 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 
+	"github.com/Ireoo/sixin-server/pkg/base"
+	"github.com/Ireoo/sixin-server/pkg/database"
+	"github.com/Ireoo/sixin-server/pkg/socket"
 	socketio "github.com/googollee/go-socket.io"
 )
 
-var server *socketio.Server
-
 func main() {
-	var err error
+	// 初始化数据库
+	if err := database.InitDB(); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
+
 	// 创建Socket.IO服务器
-	server, err = socketio.NewServer(nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 处理Socket.IO连接
-	server.OnConnect("/", func(s socketio.Conn) error {
-		s.SetContext("")
-		fmt.Println("connected:", s.ID())
-		return nil
-	})
-
-	server.OnEvent("/", "notice", func(s socketio.Conn, msg string) {
-		fmt.Println("notice:", msg)
-		s.Emit("reply", "have "+msg)
-	})
-
-	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
-		fmt.Println("closed", reason)
-	})
-
-	// 启动HTTP服务器
-	http.Handle("/socket.io/", server)
-	http.Handle("/", http.FileServer(http.Dir("./public")))
-
-	// HTTP处理程序
-	http.HandleFunc("/message", handleMessage)
-
-	log.Println("Serving at localhost:8000...")
-	log.Fatal(http.ListenAndServe(":8000", nil))
-}
-
-// HTTP处理程序
-func handleMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		msg := r.FormValue("msg")
-		fmt.Println("HTTP message:", msg)
-		// 向所有连接的Socket.IO客户端发送消息
-		server.BroadcastToNamespace("/", "reply", "HTTP message: "+msg)
-		w.Write([]byte("Message received: " + msg))
+	server := socketio.NewServer(nil)
+	if server == nil {
+		log.Fatal("Failed to create Socket.IO server")
 	} else {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		// 创建 base.Base 实例
+		baseInstance := &base.Base{}
+		// 获取数据库连接
+		db := database.GetDB()
+		// 设置Socket.IO事件处理
+		socket.SetupSocketHandlers(server, db, baseInstance)
+		log.Println("Socket.IO服务器创建成功")
 	}
+
+	// 定义命令行参数
+	hostFlag := flag.String("host", "", "服务器主机名")
+	portFlag := flag.Int("port", 0, "服务器端口")
+	flag.Parse()
+
+	// 优先使用命令行参数，其次是环境变量，最后是默认值
+	host := *hostFlag
+	if host == "" {
+		host = os.Getenv("SERVER_HOST")
+		if host == "" {
+			host = "localhost"
+		}
+	}
+
+	port := *portFlag
+	if port == 0 {
+		portStr := os.Getenv("SERVER_PORT")
+		var err error
+		port, err = strconv.Atoi(portStr)
+		if err != nil || port == 0 {
+			port = 8000
+		}
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	log.Printf("服务器运行在 %s...\n", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
