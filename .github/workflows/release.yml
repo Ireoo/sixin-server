@@ -22,6 +22,9 @@ jobs:
                 386,
                 amd64,
                 arm,
+                armv6,
+                armv7,
+                armv8,
                 arm64,
                 ppc64,
                 ppc64le,
@@ -43,7 +46,7 @@ jobs:
           # FreeBSD (使用 ubuntu 进行交叉编译)
           - os: ubuntu-latest
             goos: freebsd
-            goarch: [386, amd64, arm, arm64]
+            goarch: [386, amd64, arm, armv6, armv7, armv8, arm64]
 
     steps:
       - uses: actions/checkout@v3
@@ -63,7 +66,7 @@ jobs:
       - name: 构建
         env:
           GOOS: ${{ matrix.goos }}
-          CGO_ENABLED: 0
+          CGO_ENABLED: 1
         run: |
           for arch in ${{ join(matrix.goarch, ' ') }}; do
             echo "Building for ${{ matrix.goos }}-${arch}"
@@ -71,7 +74,7 @@ jobs:
             if [ "${{ matrix.goos }}" = "windows" ]; then
               output_name+='.exe'
             fi
-            GOARCH=${arch} go build -v -o ${output_name} || echo "Failed to build for ${arch}"
+            CGO_ENABLED=1 GOARCH=${arch} go build -v -o ${output_name} || echo "Failed to build for ${arch}"
           done
         shell: bash
 
