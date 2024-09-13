@@ -9,12 +9,13 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           # Linux
-          - goos: linux
+          - os: ubuntu-latest
+            goos: linux
             goarch:
               [
                 386,
@@ -31,14 +32,18 @@ jobs:
                 riscv64,
               ]
           # Windows
-          - goos: windows
+          - os: windows-latest
+            goos: windows
             goarch: [386, amd64, arm64]
           # macOS
-          - goos: darwin
+          - os: macos-latest
+            goos: darwin
             goarch: [amd64, arm64]
-          # FreeBSD
-          - goos: freebsd
+          # FreeBSD (使用 ubuntu 进行交叉编译)
+          - os: ubuntu-latest
+            goos: freebsd
             goarch: [386, amd64, arm, arm64]
+
     steps:
       - uses: actions/checkout@v3
       - name: 设置 Go
@@ -57,16 +62,16 @@ jobs:
       - name: 构建
         env:
           GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          for arch in ${{ matrix.goarch }}; do
+          for arch in ${{ join(matrix.goarch, ' ') }}; do
             output_name="sixin-server-${{ matrix.goos }}-${arch}"
             if [ "${{ matrix.goos }}" = "windows" ]; then
               output_name+='.exe'
             fi
             GOARCH=${arch} go build -o ${output_name}
           done
+        shell: bash
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
