@@ -2,6 +2,8 @@ name: 构建和发布
 
 on:
   push:
+    branches:
+      - main # 或者您的主分支名称
     tags:
       - "v*"
 
@@ -10,45 +12,33 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, windows, darwin, freebsd]
-        goarch:
-          [
-            386,
-            amd64,
-            arm,
-            arm64,
-            ppc64,
-            ppc64le,
-            mips,
-            mipsle,
-            mips64,
-            mips64le,
-            s390x,
-            riscv64,
-          ]
-        exclude:
+        include:
+          # Linux
+          - goos: linux
+            goarch:
+              [
+                386,
+                amd64,
+                arm,
+                arm64,
+                ppc64,
+                ppc64le,
+                mips,
+                mipsle,
+                mips64,
+                mips64le,
+                s390x,
+                riscv64,
+              ]
+          # Windows
+          - goos: windows
+            goarch: [386, amd64, arm64]
+          # macOS
           - goos: darwin
-            goarch: 386
-          - goos: darwin
-            goarch: arm
-          - goos: windows
-            goarch: arm
-          - goos: windows
-            goarch: ppc64
-          - goos: windows
-            goarch: ppc64le
-          - goos: windows
-            goarch: mips
-          - goos: windows
-            goarch: mipsle
-          - goos: windows
-            goarch: mips64
-          - goos: windows
-            goarch: mips64le
-          - goos: windows
-            goarch: s390x
-          - goos: windows
-            goarch: riscv64
+            goarch: [amd64, arm64]
+          # FreeBSD
+          - goos: freebsd
+            goarch: [386, amd64, arm, arm64]
     steps:
       - uses: actions/checkout@v3
       - name: 设置 Go
@@ -70,19 +60,22 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
         run: |
-          output_name='sixin-server-${{ matrix.goos }}-${{ matrix.goarch }}'
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            output_name+='.exe'
-          fi
-          go build -o $output_name
+          for arch in ${{ matrix.goarch }}; do
+            output_name="sixin-server-${{ matrix.goos }}-${arch}"
+            if [ "${{ matrix.goos }}" = "windows" ]; then
+              output_name+='.exe'
+            fi
+            GOARCH=${arch} go build -o ${output_name}
+          done
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.goos }}-${{ matrix.goarch }}
-          path: sixin-server-${{ matrix.goos }}-${{ matrix.goarch }}*
+          name: ${{ matrix.goos }}
+          path: sixin-server-${{ matrix.goos }}-*
 
   release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     steps:
