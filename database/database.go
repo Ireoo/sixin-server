@@ -1,30 +1,25 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 
-	"go.mongodb.org/mongo-driver/mongo"
+	"gorm.io/gorm"
 )
 
 type DatabaseType string
 
 const (
-	SQLite      DatabaseType = "sqlite"
-	MongoDBType DatabaseType = "mongodb"
+	SQLite DatabaseType = "sqlite"
 )
 
 type Database interface {
 	Init() error
 	Close() error
+	GetDB() *gorm.DB
 }
 
 type SQLiteDB struct {
-	DB *sql.DB
-}
-
-type MongoDB struct {
-	Client *mongo.Client
+	DB *gorm.DB
 }
 
 var CurrentDB Database
@@ -36,12 +31,8 @@ func InitDatabase(dbType DatabaseType, connectionString string) error {
 		sqliteDB := &SQLiteDB{}
 		err = sqliteDB.Init()
 		CurrentDB = sqliteDB
-	case MongoDBType:
-		mongoDB := &MongoDB{}
-		err = mongoDB.Init()
-		CurrentDB = mongoDB
 	default:
-		return fmt.Errorf("unsupported database type: %s", dbType)
+		return fmt.Errorf("不支持的数据库类型: %s", dbType)
 	}
 	return err
 }

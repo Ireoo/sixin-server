@@ -1,18 +1,17 @@
 package socket
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/Ireoo/sixin-server/base"
 	models "github.com/Ireoo/sixin-server/models"
-
 	socketio "github.com/googollee/go-socket.io"
+	"gorm.io/gorm"
 )
 
-var db *sql.DB
+var db *gorm.DB
 var baseInstance *base.Base
 
-func SetupSocketHandlers(server *socketio.Server, database *sql.DB, baseInst *base.Base) {
+func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *base.Base) {
 	db = database
 	baseInstance = baseInst
 
@@ -63,25 +62,9 @@ func handleRevokeMsg(s socketio.Conn, id string) {
 }
 func handleGetChats(s socketio.Conn) {
 	var messages []models.Message
-	rows, err := db.Query("SELECT * FROM messages ORDER BY timestamp DESC LIMIT 400")
-	if err != nil {
-		s.Emit("error", err.Error())
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var msg models.Message
-		err := rows.Scan(&msg.ID, &msg.Text, &msg.Timestamp) // 根据实际字段调整
-		if err != nil {
-			s.Emit("error", err.Error())
-			return
-		}
-		messages = append(messages, msg)
-	}
-
-	if err = rows.Err(); err != nil {
-		s.Emit("error", err.Error())
+	result := db.Order("timestamp DESC").Limit(400).Find(&messages)
+	if result.Error != nil {
+		s.Emit("error", result.Error.Error())
 		return
 	}
 	s.Emit("getChats", messages)
@@ -89,25 +72,9 @@ func handleGetChats(s socketio.Conn) {
 
 func handleGetRooms(s socketio.Conn) {
 	var rooms []models.Room
-	rows, err := db.Query("SELECT * FROM rooms ORDER BY updated_at DESC")
-	if err != nil {
-		s.Emit("error", err.Error())
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var room models.Room
-		err := rows.Scan(&room.ID, &room.Topic, &room.UpdatedAt) // 根据实际字段调整
-		if err != nil {
-			s.Emit("error", err.Error())
-			return
-		}
-		rooms = append(rooms, room)
-	}
-
-	if err = rows.Err(); err != nil {
-		s.Emit("error", err.Error())
+	result := db.Order("updated_at DESC").Find(&rooms)
+	if result.Error != nil {
+		s.Emit("error", result.Error.Error())
 		return
 	}
 	s.Emit("getRooms", rooms)
@@ -115,25 +82,9 @@ func handleGetRooms(s socketio.Conn) {
 
 func handleGetUsers(s socketio.Conn) {
 	var users []models.User
-	rows, err := db.Query("SELECT * FROM users ORDER BY updated_at DESC")
-	if err != nil {
-		s.Emit("error", err.Error())
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var user models.User
-		err := rows.Scan(&user.ID, &user.Name, &user.UpdatedAt) // 根据实际字段调整
-		if err != nil {
-			s.Emit("error", err.Error())
-			return
-		}
-		users = append(users, user)
-	}
-
-	if err = rows.Err(); err != nil {
-		s.Emit("error", err.Error())
+	result := db.Order("updated_at DESC").Find(&users)
+	if result.Error != nil {
+		s.Emit("error", result.Error.Error())
 		return
 	}
 	s.Emit("getUsers", users)

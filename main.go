@@ -48,7 +48,7 @@ func main() {
 		// 获取数据库连接
 		db := database.GetSqliteDB()
 		// 设置Socket.IO事件处理
-		socket.SetupSocketHandlers(server, db, baseInstance)
+		socket.SetupSocketHandlers(server, db.DB, baseInstance)
 		log.Println("Socket.IO服务器创建成功")
 	}
 
