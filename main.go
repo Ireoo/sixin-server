@@ -42,7 +42,7 @@ func main() {
 	// 优先使用命令行参数，其次是环境变量，最后是默认值
 	host := *hostFlag
 	if host == "" {
-		host = os.Getenv("SERVER_HOST")
+		host = os.Getenv("HOST")
 		if host == "" {
 			host = "localhost"
 		}
@@ -50,7 +50,7 @@ func main() {
 
 	port := *portFlag
 	if port == 0 {
-		portStr := os.Getenv("SERVER_PORT")
+		portStr := os.Getenv("PORT")
 		var err error
 		port, err = strconv.Atoi(portStr)
 		if err != nil || port == 0 {
