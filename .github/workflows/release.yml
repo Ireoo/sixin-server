@@ -63,8 +63,8 @@ jobs:
           update: true
           install: >
             mingw-w64-x86_64-gcc
-            mingw-w64-i686-gcc # 添加 32 位工具链
-            mingw-w64-aarch64-gcc # 添加 ARM64 工具链
+            mingw-w64-i686-gcc
+            mingw-w64-aarch64-gcc
 
       - name: 构建
         env:
