@@ -32,6 +32,8 @@ RUN case "$TARGETPLATFORM" in \
     "linux/arm/v6") CC=arm-linux-gnueabihf-gcc CGO_ENABLED=1 GOARCH=arm GOARM=6 GOOS=linux BINARY_NAME=sixin-server_linux_armv6 ;; \
     "windows/amd64") GOOS=windows GOARCH=amd64 CGO_ENABLED=1 BINARY_NAME=sixin-server_windows_amd64.exe ;; \
     "windows/386")   GOOS=windows GOARCH=386 CGO_ENABLED=1 BINARY_NAME=sixin-server_windows_386.exe ;; \
+    "darwin/amd64")  CC=gcc CGO_ENABLED=1 GOARCH=amd64 GOOS=darwin BINARY_NAME=sixin-server_darwin_amd64 ;; \
+    "darwin/arm64")  CC=gcc CGO_ENABLED=1 GOARCH=arm64 GOOS=darwin BINARY_NAME=sixin-server_darwin_arm64 ;; \
     *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && export CC CGO_ENABLED GOARCH GOOS GOARM \

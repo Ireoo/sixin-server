@@ -61,23 +61,8 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-i686-gcc
 
-      - name: 安装 linux 交叉编译工具链（仅限 Linux）
-        if: matrix.goos == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
-          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
-          sudo apt-get install -y gcc-mips-linux-gnu g++-mips-linux-gnu
-          sudo apt-get install -y gcc-mipsel-linux-gnu g++-mipsel-linux-gnu
-          sudo apt-get install -y gcc-mips64-linux-gnuabi64 g++-mips64-linux-gnuabi64
-          sudo apt-get install -y gcc-mips64el-linux-gnuabi64 g++-mips64el-linux-gnuabi64
-          sudo apt-get install -y gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu
-          sudo apt-get install -y gcc-s390x-linux-gnu g++-s390x-linux-gnu
-          sudo apt-get install -y gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
-
       - name: 构建
+        if: matrix.goos != 'linux'
         env:
           GOOS: ${{ matrix.goos }}
           CGO_ENABLED: 1
@@ -91,6 +76,22 @@ jobs:
             CGO_ENABLED=1 GOARCH=${arch} go build -v -o ${output_name} || echo "Failed to build for ${arch}"
           done
         shell: bash
+
+      - name: 设置 QEMU
+        if: matrix.goos == 'linux'
+        uses: docker/setup-qemu-action@v2
+
+      - name: 设置 Docker Buildx
+        if: matrix.goos == 'linux'
+        uses: docker/setup-buildx-action@v2
+
+      - name: 构建和导出
+        if: matrix.goos == 'linux'
+        run: |
+          docker buildx create --use
+          docker buildx build --platform linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6 \
+            --output "type=local,dest=./output" \
+            --file ./Dockerfile .
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
