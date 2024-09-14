@@ -6,12 +6,12 @@ RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM"
 
 WORKDIR /app
 
-# # 更新包列表并安装必要的构建工具和库
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     gcc \
-#     libc6-dev \
-#     libsqlite3-dev \
-#     && rm -rf /var/lib/apt/lists/*
+# 更新包列表并安装必要的构建工具和库
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # # 对于交叉编译，我们可能需要额外的编译器
 # RUN if [ "$BUILDPLATFORM" != "$TARGETPLATFORM" ]; then \
