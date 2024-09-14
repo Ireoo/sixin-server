@@ -44,7 +44,7 @@ jobs:
             goos: darwin
             goarch: [amd64, arm64]
           # FreeBSD
-          - os: freebsd-latest
+          - os: ubuntu-latest
             goos: freebsd
             goarch: [amd64, 386, arm, armv6, armv7, armv8, arm64]
 
