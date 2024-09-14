@@ -40,6 +40,11 @@ jobs:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v3
 
+      - name: 获取路径
+        run: |
+          pwd
+          ls -lrt
+
       - name: 获取当前日期
         id: date
         run: echo "::set-output name=date::$(date +'%Y%m%d%H%M%S')"
