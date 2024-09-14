@@ -22,7 +22,7 @@ RUN BINARY_NAME=$(echo "sixin-server_${TARGETPLATFORM}" | tr '/' '_') \
     fi \
     && CGO_ENABLED=1 go build -v -o "$BINARY_NAME"
 
-RUN ls -lrt
+RUN pwd && ls -lrt
 
 FROM scratch
 COPY --from=builder /app/sixin-server_* /
