@@ -2,9 +2,7 @@ NAME=sixin-server
 BINDIR=bin
 VERSION=$(shell git describe --tags || echo "unknown version")
 BUILDTIME=$(shell date -u)
-GOBUILD=CGO_ENABLED=1 go build -trimpath -ldflags '-X "github.com/Ireoo/API-Core/info.Version=$(VERSION)" \
-		-X "github.com/Ireoo/API-Core/info.BuildTime=$(BUILDTIME)" \
-		-w -s -buildid='
+GOBUILD=CGO_ENABLED=1 go build -trimpath
 
 PLATFORM_LIST = \
 	darwin-amd64 \

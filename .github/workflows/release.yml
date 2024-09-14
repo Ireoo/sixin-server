@@ -26,6 +26,8 @@ jobs:
           sudo apt-get install -y build-essential zip
 
       - name: 构建所有架构
+        env:
+          CGO_ENABLED: 1
         run: make all-arch
 
       - name: 创建发布文件
