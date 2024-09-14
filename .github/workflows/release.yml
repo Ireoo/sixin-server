@@ -38,7 +38,7 @@ jobs:
           # Windows
           - os: windows-latest
             goos: windows
-            goarch: [386, amd64]
+            goarch: [386, amd64, arm64]
           # macOS
           - os: macos-latest
             goos: darwin
@@ -64,6 +64,7 @@ jobs:
           install: >
             mingw-w64-x86_64-gcc
             mingw-w64-i686-gcc
+            mingw-w64-arm64-gcc
 
       - name: 构建 No sqlite3
         env:
