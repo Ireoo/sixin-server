@@ -24,7 +24,7 @@ RUN BINARY_NAME=$(echo "sixin-server_${TARGETPLATFORM}" | tr '/' '_') \
 
 RUN pwd && ls -lrt
 
-RUN chmod +x "${BINARY_NAME}" && "${BINARY_NAME}" --test
+RUN chmod +x ${BINARY_NAME} && ./${BINARY_NAME} --test
 
 FROM scratch
 COPY --from=builder /app/sixin-server_* /
