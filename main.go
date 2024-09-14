@@ -21,6 +21,7 @@ func main() {
 	dbConnFlag := flag.String("db-uri", "./database.db", "数据库连接地址")
 	hostFlag := flag.String("host", "0.0.0.0", "服务器主机名")
 	portFlag := flag.Int("port", 8000, "服务器端口")
+	testFlag := flag.Bool("test", false, "测试模式，启动后立即关闭")
 	flag.Parse()
 
 	// 创建必要的文件夹
@@ -93,4 +94,10 @@ func main() {
 
 	log.Printf("服务器运行在 %s...\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+
+	// 检查是否为测试模式
+	if *testFlag {
+		fmt.Println("测试模式启动，现在退出...")
+		os.Exit(0)
+	}
 }
