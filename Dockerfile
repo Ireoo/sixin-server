@@ -20,7 +20,7 @@ RUN BINARY_NAME=$(echo "sixin-server_${TARGETPLATFORM}" | tr '/' '_') \
     && if [[ "$TARGETPLATFORM" == windows* ]]; then \
     BINARY_NAME="${BINARY_NAME}.exe"; \
     fi \
-    && CGO_ENABLED=1 go build -v -o "$BINARY_NAME"
+    && CGO_ENABLED=1 go build -v -o "${BINARY_NAME}"
 
 RUN pwd && ls -lrt
 
