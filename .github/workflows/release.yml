@@ -22,7 +22,7 @@ jobs:
       - name: 构建和导出
         run: |
           docker buildx create --use
-          docker buildx build --platform linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6,darwin/amd64,darwin/arm64,windows/amd64,windows/386 \
+          docker buildx build --platform linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6,darwin/amd64,darwin/arm64,windows/arm64,windows/amd64,windows/386 \
             --output "type=local,dest=./output" \
             --file ./Dockerfile .
 
