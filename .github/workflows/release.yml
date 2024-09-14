@@ -9,28 +9,78 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            goos: linux
+            goarch:
+              [
+                386,
+                amd64,
+                arm,
+                armv6,
+                armv7,
+                armv8,
+                arm64,
+                ppc64,
+                ppc64le,
+                mips,
+                mipsle,
+                mips64,
+                mips64le,
+                s390x,
+                riscv64,
+              ]
+          # Windows
+          - os: windows-latest
+            goos: windows
+            goarch: [386, amd64]
+          # macOS
+          - os: macos-latest
+            goos: darwin
+            goarch: [amd64, arm64]
+
     steps:
       - uses: actions/checkout@v3
+      - name: 设置 Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.23"
 
-      - name: 设置 QEMU
-        uses: docker/setup-qemu-action@v2
+      - name: 安装依赖（仅限 Windows）
+        if: matrix.goos == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >
+            mingw-w64-x86_64-gcc
+            mingw-w64-i686-gcc
 
-      - name: 设置 Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: 构建和导出
+      - name: 构建
+        env:
+          GOOS: ${{ matrix.goos }}
+          CGO_ENABLED: 1
         run: |
-          docker buildx create --use
-          docker buildx build --platform linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6,darwin/amd64,darwin/arm64,windows/arm64,windows/amd64,windows/386 \
-            --output "type=local,dest=./output" \
-            --file ./Dockerfile .
+          for arch in ${{ join(matrix.goarch, ' ') }}; do
+            echo "Building for ${{ matrix.goos }}-${arch}"
+            output_name="sixin-server-${{ matrix.goos }}-${arch}"
+            if [ "${{ matrix.goos }}" = "windows" ]; then
+              output_name+='.exe'
+            fi
+            CGO_ENABLED=1 GOARCH=${arch} go build -v -o ${output_name} || echo "Failed to build for ${arch}"
+          done
+        shell: bash
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
         with:
-          name: binaries
-          path: output/*
+          name: ${{ matrix.goos }}-binaries
+          path: sixin-server-${{ matrix.goos }}-*
 
   release:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
@@ -39,11 +89,6 @@ jobs:
     steps:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v3
-
-      - name: 获取路径
-        run: |
-          pwd
-          ls -lrt
 
       - name: 获取当前日期
         id: date
@@ -66,6 +111,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
-            **/sixin-server_*
+            **/sixin-server-*
           tag_name: ${{ github.ref == 'refs/heads/main' && format('release-{0}', steps.date.outputs.date) || github.ref }}
           prerelease: ${{ github.ref == 'refs/heads/main' }}
