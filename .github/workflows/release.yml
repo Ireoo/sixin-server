@@ -64,7 +64,6 @@ jobs:
           install: >
             mingw-w64-x86_64-gcc
             mingw-w64-i686-gcc
-            mingw-w64-arm64-gcc
 
       - name: 构建 No sqlite3
         env:
