@@ -17,7 +17,7 @@ COPY . .
 
 # 设置交叉编译环境并构建
 RUN BINARY_NAME=$(echo "sixin-server_${TARGETPLATFORM}" | tr '/' '_') \
-    && if [[ "$TARGETPLATFORM" == windows* ]]; then \
+    && if [ "${TARGETPLATFORM#windows}" != "$TARGETPLATFORM" ]; then \
     BINARY_NAME="${BINARY_NAME}.exe"; \
     fi \
     && CGO_ENABLED=1 go build -v -o "${BINARY_NAME}"
