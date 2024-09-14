@@ -3,7 +3,7 @@ name: 构建和发布
 on:
   push:
     branches:
-      - main # 或者您的主分支名称
+      - main
     tags:
       - "v*"
 
@@ -12,25 +12,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # 获取所有标签以便正确生成版本号
 
-      - name: 设置 QEMU
-        uses: docker/setup-qemu-action@v2
+      - name: 设置 Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.23"
 
-      - name: 设置 Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: 构建和导出
+      - name: 安装依赖
         run: |
-          docker buildx create --use
-          docker buildx build --platform linux/amd64,linux/386,linux/arm64,linux/arm/v7,linux/arm/v6,windows/amd64,windows/386 \
-            --output "type=local,dest=./output" \
-            --file ./Dockerfile .
+          sudo apt-get update
+          sudo apt-get install -y build-essential zip
+
+      - name: 构建所有架构
+        run: make all-arch
+
+      - name: 创建发布文件
+        run: make releases
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v3
         with:
           name: binaries
-          path: output/sixin-server-*
+          path: bin/*
 
   release:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
@@ -39,10 +44,13 @@ jobs:
     steps:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v3
+        with:
+          name: binaries
+          path: bin
 
       - name: 获取当前日期
         id: date
-        run: echo "::set-output name=date::$(date +'%Y.%m.%d:%H.%M.%S')"
+        run: echo "date=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: 创建 Release
         id: create_release
@@ -60,7 +68,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: |
-            sixin-server-*
+          files: bin/*
           tag_name: ${{ github.ref == 'refs/heads/main' && format('release-{0}', steps.date.outputs.date) || github.ref }}
           prerelease: ${{ github.ref == 'refs/heads/main' }}
