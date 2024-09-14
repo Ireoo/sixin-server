@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.21 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -30,8 +30,8 @@ RUN case "$TARGETPLATFORM" in \
     "linux/arm64")  CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=arm64 GOOS=linux BINARY_NAME=sixin-server_linux_arm64 ;; \
     "linux/arm/v7") CC=arm-linux-gnueabihf-gcc CGO_ENABLED=1 GOARCH=arm GOARM=7 GOOS=linux BINARY_NAME=sixin-server_linux_armv7 ;; \
     "linux/arm/v6") CC=arm-linux-gnueabihf-gcc CGO_ENABLED=1 GOARCH=arm GOARM=6 GOOS=linux BINARY_NAME=sixin-server_linux_armv6 ;; \
-    "windows/amd64") GOOS=windows GOARCH=amd64 CGO_ENABLED=0 BINARY_NAME=sixin-server_windows_amd64.exe ;; \
-    "windows/386")   GOOS=windows GOARCH=386 CGO_ENABLED=0 BINARY_NAME=sixin-server_windows_386.exe ;; \
+    "windows/amd64") GOOS=windows GOARCH=amd64 CGO_ENABLED=1 BINARY_NAME=sixin-server_windows_amd64.exe ;; \
+    "windows/386")   GOOS=windows GOARCH=386 CGO_ENABLED=1 BINARY_NAME=sixin-server_windows_386.exe ;; \
     *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && export CC CGO_ENABLED GOARCH GOOS GOARM \
