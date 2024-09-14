@@ -6,20 +6,20 @@ RUN echo "I am running on $BUILDPLATFORM, building for $TARGETPLATFORM"
 
 WORKDIR /app
 
-# 更新包列表并安装必要的构建工具和库
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libc6-dev \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
+# # 更新包列表并安装必要的构建工具和库
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     gcc \
+#     libc6-dev \
+#     libsqlite3-dev \
+#     && rm -rf /var/lib/apt/lists/*
 
-# 对于交叉编译，我们可能需要额外的编译器
-RUN if [ "$BUILDPLATFORM" != "$TARGETPLATFORM" ]; then \
-    apt-get update && apt-get install -y --no-install-recommends \
-    gcc-aarch64-linux-gnu \
-    gcc-arm-linux-gnueabihf \
-    && rm -rf /var/lib/apt/lists/*; \
-    fi
+# # 对于交叉编译，我们可能需要额外的编译器
+# RUN if [ "$BUILDPLATFORM" != "$TARGETPLATFORM" ]; then \
+#     apt-get update && apt-get install -y --no-install-recommends \
+#     gcc-aarch64-linux-gnu \
+#     gcc-arm-linux-gnueabihf \
+#     && rm -rf /var/lib/apt/lists/*; \
+#     fi
 
 COPY . .
 
@@ -36,8 +36,7 @@ RUN case "$TARGETPLATFORM" in \
     "darwin/arm64")  CC=gcc CGO_ENABLED=1 GOARCH=arm64 GOOS=darwin BINARY_NAME=sixin-server_darwin_arm64 ;; \
     *) echo "Unsupported platform: $TARGETPLATFORM" && exit 1 ;; \
     esac \
-    && export CC CGO_ENABLED GOARCH GOOS GOARM \
-    && go build -v -tags 'sqlite_foreign_keys' -ldflags '-w -s' -o ${BINARY_NAME}
+    && CGO_ENABLED=1 go build -v -o {BINARY_NAME}
 
 FROM scratch
-COPY --from=builder /app/sixin-server_* /
+COPY --from=builder /app/sixin-server* /
