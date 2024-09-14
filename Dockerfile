@@ -17,8 +17,9 @@ COPY . .
 
 # 设置交叉编译环境并构建
 RUN BINARY_NAME=$(echo "sixin-server_${TARGETPLATFORM}" | tr '/' '_') \
-    && CGO_ENABLED=1 go build -v -o "$BINARY_NAME" \
-    && ls -lrt
+    && CGO_ENABLED=1 go build -v -o "$BINARY_NAME"
+
+RUN ls -lrt
 
 FROM scratch
 COPY --from=builder /app/sixin-server_* /
