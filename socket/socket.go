@@ -1,15 +1,18 @@
 package socket
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/Ireoo/sixin-server/base"
 	models "github.com/Ireoo/sixin-server/models"
+	"github.com/google/uuid"
 	socketio "github.com/googollee/go-socket.io"
 	"gorm.io/gorm"
 )
 
 var db *gorm.DB
 var baseInstance *base.Base
+var activeSockets map[string]socketio.Conn = make(map[string]socketio.Conn)
 
 func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *base.Base) {
 	db = database
@@ -29,6 +32,8 @@ func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *b
 }
 
 func handleConnect(s socketio.Conn) error {
+	// 添加连接到集合
+	activeSockets[s.ID()] = s
 	s.SetContext("")
 	fmt.Println("connected:", s.ID())
 	s.Emit("receive", baseInstance.ReceiveDevice)
@@ -95,9 +100,83 @@ func handleGetRoomByUsers(s socketio.Conn) {
 }
 
 func handleDisconnect(s socketio.Conn, reason string) {
+	// 从集合中移除连接
+	delete(activeSockets, s.ID())
 	fmt.Println("closed", reason)
 }
 
 func handleMessage(s socketio.Conn, msg string) {
-	// 实现消息处理逻辑
+	var data struct {
+		Message struct {
+			MsgID      string `json:"msgId"`
+			TalkerID   uint   `json:"talkerId"`
+			ListenerID uint   `json:"listenerId"`
+			RoomID     uint   `json:"roomId"`
+			Text       struct {
+				Message string `json:"message"`
+				Image   string `json:"image"`
+			} `json:"text"`
+			Timestamp     int64  `json:"timestamp"`
+			Type          int    `json:"type"`
+			MentionIDList string `json:"mentionIdList"`
+		} `json:"message"`
+	}
+
+	if err := json.Unmarshal([]byte(msg), &data); err != nil {
+		s.Emit("error", "消息格式错误: "+err.Error())
+		return
+	}
+
+	// 将消息记录到数据库，并发送给对应的用户
+	if data.Message.MsgID == "" {
+		data.Message.MsgID = uuid.New().String()
+	}
+
+	message := models.Message{
+		MsgID:         data.Message.MsgID,
+		TalkerID:      data.Message.TalkerID,
+		ListenerID:    data.Message.ListenerID,
+		Text:          data.Message.Text.Message,
+		Timestamp:     data.Message.Timestamp,
+		Type:          data.Message.Type,
+		MentionIDList: data.Message.MentionIDList,
+		RoomID:        data.Message.RoomID,
+	}
+	// 记录消息到数据库
+	if err := recordMessage(message); err != nil {
+		s.Emit("error", "保存消息错误: "+err.Error())
+	}
+	// 定义一个发送信息 sendData 是一个 user或者room和message结构数据
+	sendData := struct {
+		User    models.User    `json:"user"`
+		Room    models.Room    `json:"room"`
+		Message models.Message `json:"message"`
+	}{
+		User:    models.User{ID: message.TalkerID},
+		Room:    models.Room{ID: message.RoomID},
+		Message: message,
+	}
+	// 发送消息给对应的用户
+	sendMessageToUser(message.TalkerID, sendData)
+	sendMessageToUser(message.ListenerID, sendData)
+}
+
+// sendMessageToUser 发送消息给指定的用户
+func sendMessageToUser(userID uint, message interface{}) {
+	// 遍历activeSockets数组，发送消息
+	for _, socket := range activeSockets {
+		if userContext, ok := socket.Context().(map[string]interface{}); ok {
+			if id, ok := userContext["user_id"].(uint); ok && id == userID {
+				socket.Emit("message", message)
+				fmt.Printf("Message sent to user %d: %+v\n", userID, message)
+			}
+		}
+	}
+}
+
+// recordMessage 将消息记录到数据库
+func recordMessage(message models.Message) error {
+	// 假设使用 GORM 进行数据库操作
+	result := db.Create(&message)
+	return result.Error
 }

@@ -14,41 +14,33 @@ type User struct {
 	City      string
 	Friend    bool
 	Gender    string
-	UpdatedAt int64
-	CreatedAt int64
 }
 
 type Room struct {
 	ID           uint   `gorm:"primaryKey;autoIncrement"`
 	RoomID       string `gorm:"uniqueIndex"`
-	Topic        string
+	Name         string
 	OwnerID      string
 	MemberIDList string `gorm:"type:json"`
 	Avatar       string
 	AdminIDList  string `gorm:"type:json"`
-	UpdatedAt    int64
-	CreatedAt    int64
 }
 
 type RoomByUser struct {
-	ID        uint `gorm:"primaryKey;autoIncrement"`
-	Name      string
-	Alias     string
-	Topic     string
-	UpdatedAt int64
-	CreatedAt int64
+	ID     uint `gorm:"primaryKey;autoIncrement"`
+	UserID uint
+	RoomID uint
+	Alias  string
 }
 
 type Message struct {
 	ID            uint   `gorm:"primaryKey;autoIncrement"`
 	MsgID         string `gorm:"uniqueIndex"`
-	TalkerID      string
-	ListenerID    string
-	Text          string `gorm:"type:text"`
-	Timestamp     int64
+	TalkerID      uint
+	ListenerID    uint
+	Text          string `gorm:"type:json"`
+	Timestamp     int64  // 时间戳
 	Type          int
-	RoomID        string
+	RoomID        uint
 	MentionIDList string `gorm:"type:json"`
-	UpdatedAt     int64
-	CreatedAt     int64
 }

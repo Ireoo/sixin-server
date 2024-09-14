@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/Ireoo/sixin-server/base"
@@ -20,34 +19,19 @@ func main() {
 	dbTypeFlag := flag.String("db-type", "sqlite", "数据库类型 (postgres, mongodb, sqlite)")
 	dbConnFlag := flag.String("db-uri", "./database.db", "数据库连接地址")
 	hostFlag := flag.String("host", "0.0.0.0", "服务器主机名")
-	portFlag := flag.Int("port", 8000, "服务器端口")
+	portFlag := flag.Int("port", 80, "服务器端口")
 	testFlag := flag.Bool("test", false, "测试模式，启动后立即关闭")
 	flag.Parse()
 
-	// 创建必要的文件夹
-	folders := []string{"data", "image", "avatar", "audio", "video", "attachment", "emoticon", "url", "database"}
-	for _, folder := range folders {
-		path := filepath.Join("data", folder)
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			log.Fatalf("创建文件夹 %s 失败: %v", path, err)
-		}
-	}
-
 	// 优先使用命令行参数，其次是环境变量，最后是默认值
-	dbType := database.DatabaseType(*dbTypeFlag)
+	dbType := database.DatabaseType(os.Getenv("DB_TYPE"))
 	if dbType == "" {
-		dbTypeStr := os.Getenv("DB_TYPE")
-		if dbTypeStr == "" {
-			dbTypeStr = "sqlite" // 默认数据库类型
-		}
+		dbType = database.DatabaseType(*dbTypeFlag)
 	}
 
-	dbConn := *dbConnFlag
+	dbConn := os.Getenv("DB_URI")
 	if dbConn == "" {
-		dbConn = os.Getenv("DB_URI")
-		if dbConn == "" {
-			dbConn = "./database.db" // 默认数据库连接地址
-		}
+		dbConn = *dbConnFlag
 	}
 
 	// 创建Socket.IO服务器
@@ -72,22 +56,14 @@ func main() {
 	}
 
 	// 优先使用命令行参数，其次是环境变量，最后是默认值
-	host := *hostFlag
+	host := os.Getenv("HOST")
 	if host == "" {
-		host = os.Getenv("HOST")
-		if host == "" {
-			host = "localhost"
-		}
+		host = *hostFlag
 	}
 
-	port := *portFlag
-	if port == 0 {
-		portStr := os.Getenv("PORT")
-		var err error
-		port, err = strconv.Atoi(portStr)
-		if err != nil || port == 0 {
-			port = 8000
-		}
+	port, err := strconv.Atoi(os.Getenv("PORT"))
+	if err != nil || port == 0 {
+		port = *portFlag
 	}
 
 	addr := fmt.Sprintf("%s:%d", host, port)
