@@ -13,7 +13,7 @@ import (
 	"github.com/Ireoo/sixin-server/middleware"
 	"github.com/Ireoo/sixin-server/socket-io"
 	"github.com/Ireoo/sixin-server/stun"
-	"github.com/Ireoo/sixin-server/webrtc"
+	// "github.com/Ireoo/sixin-server/webrtc"
 )
 
 func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -41,13 +41,8 @@ func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func SetupAndRun(cfg *config.Config) {
-	// 创建 http.Server 实例而不是 http.ServeMux
-	server := &http.Server{
-		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-	}
-
 	// 创建路由器
-	mux := http.NewServeMux()
+	// mux := http.NewServeMux()
 
 	// 创建 base.Base 实例
 	baseInstance := &base.Base{}
@@ -61,9 +56,9 @@ func SetupAndRun(cfg *config.Config) {
 	http.Handle("/socket.io/", io.ServeHandler(nil))
 
 	// 初始化WebRTC服务器
-	_webrtcServer := webrtcServer.NewWebRTCServer()
+	// _webrtcServer := webrtcServer.NewWebRTCServer()
 
-	http.HandleFunc("/webrtc", _webrtcServer.HandleWebRTC)
+	// http.HandleFunc("/webrtc", _webrtcServer.HandleWebRTC)
 
 	// // 初始化SFU
 	// sfuConfig := sfu.Config{}
@@ -77,10 +72,10 @@ func SetupAndRun(cfg *config.Config) {
 	handler = loggerMiddleware(handler)
 	handler = middleware.Logger(handler)
 	handler = middleware.CORS(handler)
-	mux.HandleFunc("/", handler)
+	http.HandleFunc("/", handler)
 
 	// 静态文件服务
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
 	// 设置STUN服务器
 	go func() {
@@ -90,8 +85,13 @@ func SetupAndRun(cfg *config.Config) {
 		}
 	}()
 
-	// 设置服务器的处理器
-	server.Handler = mux
+	// 创建 http.Server 实例而不是 http.ServeMux
+	server := &http.Server{
+		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+	}
+
+	// // 设置服务器的处理器
+	// server.Handler = mux
 
 	// 启动服务器
 	startServer(server, cfg)
