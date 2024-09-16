@@ -235,7 +235,7 @@ func handleGetChats(client *socket.Socket, args ...any) {
 
 func handleGetRooms(client *socket.Socket, args ...any) {
 	var rooms []models.Room
-	result := db.Order("updated_at DESC").Find(&rooms)
+	result := db.Order("timestamp DESC").Find(&rooms)
 	if result.Error != nil {
 		client.Emit("error", result.Error.Error())
 		return
@@ -245,7 +245,7 @@ func handleGetRooms(client *socket.Socket, args ...any) {
 
 func handleGetUsers(client *socket.Socket, args ...any) {
 	var users []models.User
-	result := db.Order("updated_at DESC").Find(&users)
+	result := db.Order("timestamp DESC").Find(&users)
 	if result.Error != nil {
 		client.Emit("error", result.Error.Error())
 		return
