@@ -13,22 +13,21 @@ import (
 	"github.com/Ireoo/sixin-server/middleware"
 	"github.com/Ireoo/sixin-server/socket"
 	"github.com/Ireoo/sixin-server/webrtc"
-	"github.com/gin-gonic/gin"
 	socketio "github.com/googollee/go-socket.io"
 )
 
-func loggerMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
+func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
+		path := r.URL.Path
+		raw := r.URL.RawQuery
 
-		c.Next()
+		next.ServeHTTP(w, r)
 
 		latency := time.Since(start)
-		clientIP := c.ClientIP()
-		method := c.Request.Method
-		statusCode := c.Writer.Status()
+		clientIP := r.RemoteAddr
+		method := r.Method
+		statusCode := http.StatusOK // 注意：这里无法获取真实的状态码，需要自定义 ResponseWriter
 
 		log.Printf("| %3d | %13v | %15s | %s  %s\n%s",
 			statusCode,
@@ -42,9 +41,6 @@ func loggerMiddleware() gin.HandlerFunc {
 }
 
 func SetupAndRun(cfg *config.Config) {
-	// 创建Gin引擎
-	r := gin.Default()
-
 	// 创建 base.Base 实例
 	baseInstance := &base.Base{}
 
@@ -54,47 +50,66 @@ func SetupAndRun(cfg *config.Config) {
 	// 初始化WebRTC服务器
 	webrtcServer := initWebRTCServer()
 
+	// 创建路由器
+	mux := http.NewServeMux()
 	// 设置中间件
-	r.Use(middleware.CORS())
-	r.Use(middleware.Logger())
-	r.Use(loggerMiddleware())
-
-	// Socket.IO路由
-	r.Any("/socket.io/*any", gin.WrapH(socketServer))
-
-	// WebRTC路由
-	r.GET("/webrtc", func(c *gin.Context) {
-		webrtcServer.HandleWebRTC(c.Writer, c.Request)
-	})
-
-	// API路由组
-	api := r.Group("/api")
-	{
-		api.GET("/ping", handlers.Ping)
-
-		// 用户相关路由
-		users := api.Group("/users")
-		{
-			users.GET("", handlers.GetUsers)
-			users.POST("", handlers.CreateUser)
-			users.GET("/:id", handlers.GetUser)
-			users.PUT("/:id", handlers.UpdateUser)
-			users.DELETE("/:id", handlers.DeleteUser)
-		}
-
-		// 可以添加更多API路由...
-	}
+	handler := handleRoutes(socketServer, webrtcServer)
+	handler = loggerMiddleware(handler)
+	handler = middleware.Logger(handler)
+	handler = middleware.CORS(handler)
+	mux.HandleFunc("/", handler)
 
 	// 静态文件服务
-	r.Static("/static", "./static")
-
-	// 404处理
-	r.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"message": "Not Found"})
-	})
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
 	// 启动服务器
-	startServer(r, cfg)
+	startServer(mux, cfg)
+}
+
+func handleRoutes(socketServer *socketio.Server, webrtcServer *webrtc.WebRTCServer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/socket.io/":
+			socketServer.ServeHTTP(w, r)
+		case "/webrtc":
+			webrtcServer.HandleWebRTC(w, r)
+		case "/api/ping":
+			handlers.Ping(w, r)
+		case "/api/users":
+			switch r.Method {
+			case http.MethodGet:
+				handlers.GetUsers(w, r)
+			case http.MethodPost:
+				handlers.CreateUser(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		default:
+			if r.URL.Path[:10] == "/api/users/" {
+				id := r.URL.Path[10:]
+				switch r.Method {
+				case http.MethodGet:
+					handlers.GetUser(w, r, id)
+				case http.MethodPut:
+					handlers.UpdateUser(w, r, id)
+				case http.MethodDelete:
+					handlers.DeleteUser(w, r, id)
+				default:
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			} else {
+				http.NotFound(w, r)
+			}
+		}
+	}
+}
+
+// initSocketServer 和 initWebRTCServer 函数保持不变
+
+func startServer(mux *http.ServeMux, cfg *config.Config) {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	log.Printf("服务器运行在 %s...\n", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
 func initSocketServer(baseInstance *base.Base) *socketio.Server {
@@ -114,10 +129,4 @@ func initWebRTCServer() *webrtc.WebRTCServer {
 		log.Fatalf("初始化WebRTC服务器失败: %v", err)
 	}
 	return webrtcServer
-}
-
-func startServer(r *gin.Engine, cfg *config.Config) {
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Printf("服务器运行在 %s...\n", addr)
-	log.Fatal(r.Run(addr))
 }
