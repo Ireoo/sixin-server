@@ -12,6 +12,7 @@ import (
 
 type Config struct {
 	Host              string
+	StunPort          int
 	Port              int
 	DBType            string
 	DBConn            string

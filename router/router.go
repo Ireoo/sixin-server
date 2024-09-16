@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,7 +13,11 @@ import (
 	"github.com/Ireoo/sixin-server/handlers"
 	"github.com/Ireoo/sixin-server/middleware"
 	"github.com/Ireoo/sixin-server/socket-io"
+	"github.com/Ireoo/sixin-server/stun"
 	"github.com/Ireoo/sixin-server/webrtc"
+	"github.com/gorilla/websocket"
+	"github.com/pion/ion-sfu/pkg/sfu"
+	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -41,6 +46,11 @@ func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func SetupAndRun(cfg *config.Config) {
+	// 创建 http.Server 实例而不是 http.ServeMux
+	server := &http.Server{
+		Addr: fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+	}
+
 	// 创建路由器
 	mux := http.NewServeMux()
 
@@ -52,13 +62,25 @@ func SetupAndRun(cfg *config.Config) {
 
 	// 设置Socket.IO事件处理
 	socketIo.SetupSocketHandlers(db.GetDB(), baseInstance)
-	socketServer := socket.NewServer(mux, nil)
+	socketServer := socket.NewServer(server, nil)
+
+	// 修改路由处理
+	mux.Handle("/socket.io/", socketServer.ServeHandler(nil))
 
 	// 初始化WebRTC服务器
-	webrtcServer := initWebRTCServer()
+	_webrtcServer := webrtcServer.NewWebRTCServer()
+
+	http.HandleFunc("/webrtc", _webrtcServer.HandleWebRTC)
+
+	// 初始化SFU
+	sfuConfig := sfu.Config{}
+	sfuInstance := sfu.NewSFU(sfuConfig)
+
+	// 设置SFU处理程序
+	mux.HandleFunc("/sfu", handleSFU(sfuInstance))
 
 	// 设置中间件
-	handler := handleRoutes(webrtcServer)
+	handler := handleRoutes()
 	handler = loggerMiddleware(handler)
 	handler = middleware.Logger(handler)
 	handler = middleware.CORS(handler)
@@ -67,18 +89,24 @@ func SetupAndRun(cfg *config.Config) {
 	// 静态文件服务
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
-	// 修改路由处理
-	mux.Handle("/socket.io/", socketServer.ServeHandler(nil))
+	// 设置STUN服务器
+	go func() {
+		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort) // 假设配置中有StunPort
+		if err := stunServer.StartSTUNServer(stunAddress); err != nil {
+			log.Printf("STUN服务器启动失败: %v", err)
+		}
+	}()
+
+	// 设置服务器的处理器
+	server.Handler = mux
 
 	// 启动服务器
-	startServer(mux, cfg)
+	startServer(server, cfg)
 }
 
-func handleRoutes(webrtcServer *webrtc.WebRTCServer) http.HandlerFunc {
+func handleRoutes() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/webrtc":
-			webrtcServer.HandleWebRTC(w, r)
 		case "/api/ping":
 			handlers.Ping(w, r)
 		case "/api/users":
@@ -110,18 +138,76 @@ func handleRoutes(webrtcServer *webrtc.WebRTCServer) http.HandlerFunc {
 	}
 }
 
-// initSocketServer 和 initWebRTCServer 函数保持不变
+func handleSFU(sfuInstance *sfu.SFU) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 升级HTTP连接为WebSocket
+		upgrader := websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				return true
+			},
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("升级到WebSocket失败: %v", err)
+			return
+		}
+		defer conn.Close()
 
-func startServer(mux *http.ServeMux, cfg *config.Config) {
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Printf("服务器运行在 %s...\n", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+		// 创建新的 WebRTC PeerConnection
+		peerConnectionConfig := webrtc.Configuration{}
+		peerConnection, err := webrtc.NewPeerConnection(peerConnectionConfig)
+		if err != nil {
+			log.Printf("创建WebRTC PeerConnection失败: %v", err)
+			return
+		}
+		defer peerConnection.Close()
+
+		// 创建包装器
+		pcWrapper := &peerConnectionWrapper{
+			pc:  peerConnection,
+			sfu: sfuInstance,
+		}
+
+		// 使用包装器创建 peer
+		peer := sfu.NewPeer(pcWrapper)
+
+		// 监听信令消息（SDP 和 ICE 候选）
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("读取WebSocket消息失败: %v", err)
+				break
+			}
+
+			// 假设接收到的消息是 SDP，可以进一步解析处理
+			log.Printf("收到消息: %s", message)
+
+			// 根据具体信令处理消息，通常包括 SDP 和 ICE 候选的交换
+			offer := webrtc.SessionDescription{}
+			err = json.Unmarshal(message, &offer)
+			if err != nil {
+				log.Printf("解析SDP失败: %v", err)
+				continue
+			}
+			// peer.OnOffer 等方法来处理信令
+			peer.OnOffer(&offer)
+		}
+	}
 }
 
-func initWebRTCServer() *webrtc.WebRTCServer {
-	webrtcServer, err := webrtc.NewWebRTCServer()
-	if err != nil {
-		log.Fatalf("初始化WebRTC服务器失败: %v", err)
-	}
-	return webrtcServer
+// 创建一个包装器结构体
+type peerConnectionWrapper struct {
+	pc  *webrtc.PeerConnection
+	sfu *sfu.SFU
+}
+
+// 实现 GetSession 方法
+func (pcw *peerConnectionWrapper) GetSession(sid string) (sfu.Session, sfu.WebRTCTransportConfig) {
+	session, config := pcw.sfu.GetSession(sid)
+	return session, config
+}
+
+func startServer(server *http.Server, cfg *config.Config) {
+	log.Printf("服务器运行在 %s...\n", server.Addr)
+	log.Fatal(server.ListenAndServe())
 }
