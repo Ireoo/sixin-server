@@ -47,6 +47,9 @@ func SetupAndRun(cfg *config.Config) {
 	// 设置Socket.IO事件处理
 	socketServer := initSocketServer(baseInstance)
 
+	go socketServer.Serve()
+	defer socketServer.Close()
+
 	// 初始化WebRTC服务器
 	webrtcServer := initWebRTCServer()
 
