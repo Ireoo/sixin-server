@@ -8,11 +8,17 @@ import (
 	"github.com/google/uuid"
 	socketio "github.com/googollee/go-socket.io"
 	"gorm.io/gorm"
+	"os"
 )
 
 var db *gorm.DB
 var baseInstance *base.Base
 var activeSockets map[string]socketio.Conn = make(map[string]socketio.Conn)
+var debug bool
+
+func init() {
+	debug = os.Getenv("DEBUG") == "true"
+}
 
 func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *base.Base) {
 	db = database
@@ -32,6 +38,7 @@ func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *b
 }
 
 func handleConnect(s socketio.Conn) error {
+	fmt.Println("新连接：", s.ID())
 	// 添加连接到集合
 	activeSockets[s.ID()] = s
 	s.SetContext("")
@@ -106,6 +113,7 @@ func handleDisconnect(s socketio.Conn, reason string) {
 }
 
 func handleMessage(s socketio.Conn, msg string) {
+	fmt.Println("收到消息：", msg)
 	var data struct {
 		Message struct {
 			MsgID      string `json:"msgId"`

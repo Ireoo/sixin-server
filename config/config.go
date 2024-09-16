@@ -11,11 +11,12 @@ import (
 )
 
 type Config struct {
-	Host     string
-	Port     int
-	DBType   string
-	DBConn   string
-	TestMode bool
+	Host              string
+	Port              int
+	DBType            string
+	DBConn            string
+	TestMode          bool
+	EnableSomeFeature bool
 }
 
 func InitConfig() *Config {

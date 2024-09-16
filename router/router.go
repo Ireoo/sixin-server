@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/config"
@@ -15,6 +16,30 @@ import (
 	"github.com/gin-gonic/gin"
 	socketio "github.com/googollee/go-socket.io"
 )
+
+func loggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+
+		c.Next()
+
+		latency := time.Since(start)
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+
+		log.Printf("| %3d | %13v | %15s | %s  %s\n%s",
+			statusCode,
+			latency,
+			clientIP,
+			method,
+			path,
+			raw,
+		)
+	}
+}
 
 func SetupAndRun(cfg *config.Config) {
 	// 创建Gin引擎
@@ -32,6 +57,7 @@ func SetupAndRun(cfg *config.Config) {
 	// 设置中间件
 	r.Use(middleware.CORS())
 	r.Use(middleware.Logger())
+	r.Use(loggerMiddleware())
 
 	// Socket.IO路由
 	r.GET("/socket.io/*any", gin.WrapH(socketServer))
