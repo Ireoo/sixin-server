@@ -35,6 +35,11 @@ func SetupSocketHandlers(server *socketio.Server, database *gorm.DB, baseInst *b
 	server.OnEvent("/", "getUsers", handleGetUsers)
 	server.OnEvent("/", "getRoomByUsers", handleGetRoomByUsers)
 	server.OnDisconnect("/", handleDisconnect)
+
+	server.OnError("/", func(s socketio.Conn, e error) {
+		// server.Remove(s.ID())
+		fmt.Println("meet error:", e)
+	})
 }
 
 func handleConnect(s socketio.Conn) error {
