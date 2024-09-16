@@ -111,18 +111,18 @@ jobs:
 
       - name: 获取当前日期
         id: date
-        run: echo "::set-output name=date::$(date +'%Y%m%d%H%M%S')"
+        run: echo "::set-output name=date::$(date +'%Y.%m.%d')"
 
-      - name: 创建 Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref == 'refs/heads/main' && format('release-{0}', steps.date.outputs.date) || github.ref }}
-          release_name: ${{ github.ref == 'refs/heads/main' && format('Release {0}', steps.date.outputs.date) || github.ref }}
-          draft: false
-          prerelease: ${{ github.ref == 'refs/heads/main' }}
+      #   - name: 创建 Release
+      #     id: create_release
+      #     uses: actions/create-release@v1
+      #     env:
+      #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     with:
+      #       tag_name: ${{ github.ref == 'refs/heads/main' && format('t{0}', steps.date.outputs.date) || github.ref }}
+      #       release_name: ${{ github.ref == 'refs/heads/main' && format('Test {0}', steps.date.outputs.date) || github.ref }}
+      #       draft: false
+      #       prerelease: ${{ github.ref == 'refs/heads/main' }}
 
       - name: 上传 Release 资产
         uses: softprops/action-gh-release@v1
@@ -131,5 +131,5 @@ jobs:
         with:
           files: |
             **/sixin-server-*
-          tag_name: ${{ github.ref == 'refs/heads/main' && format('release-{0}', steps.date.outputs.date) || github.ref }}
+          tag_name: ${{ github.ref == 'refs/heads/main' && format('t{0}', steps.date.outputs.date) || github.ref }}
           prerelease: ${{ github.ref == 'refs/heads/main' }}
