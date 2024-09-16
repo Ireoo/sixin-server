@@ -11,9 +11,9 @@ import (
 	"github.com/Ireoo/sixin-server/database"
 	"github.com/Ireoo/sixin-server/handlers"
 	"github.com/Ireoo/sixin-server/middleware"
-	"github.com/Ireoo/sixin-server/socket"
+	"github.com/Ireoo/sixin-server/socket-io"
 	"github.com/Ireoo/sixin-server/webrtc"
-	socketio "github.com/googollee/go-socket.io"
+	"github.com/zishang520/socket.io/v2/socket"
 )
 
 func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -41,22 +41,24 @@ func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func SetupAndRun(cfg *config.Config) {
+	// 创建路由器
+	mux := http.NewServeMux()
+
 	// 创建 base.Base 实例
 	baseInstance := &base.Base{}
 
-	// 设置Socket.IO事件处理
-	socketServer := initSocketServer(baseInstance)
+	// 获取数据库实例
+	db := database.GetCurrentDB()
 
-	go socketServer.Serve()
-	defer socketServer.Close()
+	// 设置Socket.IO事件处理
+	socketIo.SetupSocketHandlers(db.GetDB(), baseInstance)
+	socketServer := socket.NewServer(mux, nil)
 
 	// 初始化WebRTC服务器
 	webrtcServer := initWebRTCServer()
 
-	// 创建路由器
-	mux := http.NewServeMux()
 	// 设置中间件
-	handler := handleRoutes(socketServer, webrtcServer)
+	handler := handleRoutes(webrtcServer)
 	handler = loggerMiddleware(handler)
 	handler = middleware.Logger(handler)
 	handler = middleware.CORS(handler)
@@ -65,15 +67,16 @@ func SetupAndRun(cfg *config.Config) {
 	// 静态文件服务
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
+	// 修改路由处理
+	mux.Handle("/socket.io/", socketServer.ServeHandler(nil))
+
 	// 启动服务器
 	startServer(mux, cfg)
 }
 
-func handleRoutes(socketServer *socketio.Server, webrtcServer *webrtc.WebRTCServer) http.HandlerFunc {
+func handleRoutes(webrtcServer *webrtc.WebRTCServer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/socket.io/":
-			socketServer.ServeHTTP(w, r)
 		case "/webrtc":
 			webrtcServer.HandleWebRTC(w, r)
 		case "/api/ping":
@@ -113,17 +116,6 @@ func startServer(mux *http.ServeMux, cfg *config.Config) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	log.Printf("服务器运行在 %s...\n", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
-}
-
-func initSocketServer(baseInstance *base.Base) *socketio.Server {
-	socketServer := socketio.NewServer(nil)
-	if socketServer == nil {
-		log.Fatal("创建Socket.IO服务器失败")
-	}
-	db := database.GetCurrentDB()
-	socket.SetupSocketHandlers(socketServer, db.GetDB(), baseInstance)
-	log.Println("Socket.IO服务器创建成功")
-	return socketServer
 }
 
 func initWebRTCServer() *webrtc.WebRTCServer {
