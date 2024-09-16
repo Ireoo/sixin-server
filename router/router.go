@@ -18,7 +18,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/pion/ion-sfu/pkg/sfu"
 	"github.com/pion/webrtc/v3"
-	"github.com/zishang520/socket.io/v2/socket"
 )
 
 func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
