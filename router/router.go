@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,9 +14,6 @@ import (
 	"github.com/Ireoo/sixin-server/socket-io"
 	"github.com/Ireoo/sixin-server/stun"
 	"github.com/Ireoo/sixin-server/webrtc"
-	"github.com/gorilla/websocket"
-	"github.com/pion/ion-sfu/pkg/sfu"
-	"github.com/pion/webrtc/v3"
 )
 
 func loggerMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -69,12 +65,12 @@ func SetupAndRun(cfg *config.Config) {
 
 	http.HandleFunc("/webrtc", _webrtcServer.HandleWebRTC)
 
-	// 初始化SFU
-	sfuConfig := sfu.Config{}
-	sfuInstance := sfu.NewSFU(sfuConfig)
+	// // 初始化SFU
+	// sfuConfig := sfu.Config{}
+	// sfuInstance := sfu.NewSFU(sfuConfig)
 
-	// 设置SFU处理程序
-	mux.HandleFunc("/sfu", handleSFU(sfuInstance))
+	// // 设置SFU处理程序
+	// mux.HandleFunc("/sfu", handleSFU(sfuInstance))
 
 	// 设置中间件
 	handler := handleRoutes()
@@ -135,74 +131,74 @@ func handleRoutes() http.HandlerFunc {
 	}
 }
 
-func handleSFU(sfuInstance *sfu.SFU) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 升级HTTP连接为WebSocket
-		upgrader := websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
-		}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.Printf("升级到WebSocket失败: %v", err)
-			return
-		}
-		defer conn.Close()
+// func handleSFU(sfuInstance *sfu.SFU) http.HandlerFunc {
+// 	return func(w http.ResponseWriter, r *http.Request) {
+// 		// 升级HTTP连接为WebSocket
+// 		upgrader := websocket.Upgrader{
+// 			CheckOrigin: func(r *http.Request) bool {
+// 				return true
+// 			},
+// 		}
+// 		conn, err := upgrader.Upgrade(w, r, nil)
+// 		if err != nil {
+// 			log.Printf("升级到WebSocket失败: %v", err)
+// 			return
+// 		}
+// 		defer conn.Close()
 
-		// 创建新的 WebRTC PeerConnection
-		peerConnectionConfig := webrtc.Configuration{}
-		peerConnection, err := webrtc.NewPeerConnection(peerConnectionConfig)
-		if err != nil {
-			log.Printf("创建WebRTC PeerConnection失败: %v", err)
-			return
-		}
-		defer peerConnection.Close()
+// 		// 创建新的 WebRTC PeerConnection
+// 		peerConnectionConfig := webrtc.Configuration{}
+// 		peerConnection, err := webrtc.NewPeerConnection(peerConnectionConfig)
+// 		if err != nil {
+// 			log.Printf("创建WebRTC PeerConnection失败: %v", err)
+// 			return
+// 		}
+// 		defer peerConnection.Close()
 
-		// 创建包装器
-		pcWrapper := &peerConnectionWrapper{
-			pc:  peerConnection,
-			sfu: sfuInstance,
-		}
+// 		// 创建包装器
+// 		pcWrapper := &peerConnectionWrapper{
+// 			pc:  peerConnection,
+// 			sfu: sfuInstance,
+// 		}
 
-		// 使用包装器创建 peer
-		peer := sfu.NewPeer(pcWrapper)
+// 		// 使用包装器创建 peer
+// 		peer := sfu.NewPeer(pcWrapper)
 
-		// 监听信令消息（SDP 和 ICE 候选）
-		for {
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				log.Printf("读取WebSocket消息失败: %v", err)
-				break
-			}
+// 		// 监听信令消息（SDP 和 ICE 候选）
+// 		for {
+// 			_, message, err := conn.ReadMessage()
+// 			if err != nil {
+// 				log.Printf("读取WebSocket消息失败: %v", err)
+// 				break
+// 			}
 
-			// 假设接收到的消息是 SDP，可以进一步解析处理
-			log.Printf("收到消息: %s", message)
+// 			// 假设接收到的消息是 SDP，可以进一步解析处理
+// 			log.Printf("收到消息: %s", message)
 
-			// 根据具体信令处理消息，通常包括 SDP 和 ICE 候选的交换
-			offer := webrtc.SessionDescription{}
-			err = json.Unmarshal(message, &offer)
-			if err != nil {
-				log.Printf("解析SDP失败: %v", err)
-				continue
-			}
-			// peer.OnOffer 等方法来处理信令
-			peer.OnOffer(&offer)
-		}
-	}
-}
+// 			// 根据具体信令处理消息，通常包括 SDP 和 ICE 候选的交换
+// 			offer := webrtc.SessionDescription{}
+// 			err = json.Unmarshal(message, &offer)
+// 			if err != nil {
+// 				log.Printf("解析SDP失败: %v", err)
+// 				continue
+// 			}
+// 			// peer.OnOffer 等方法来处理信令
+// 			peer.OnOffer(&offer)
+// 		}
+// 	}
+// }
 
-// 创建一个包装器结构体
-type peerConnectionWrapper struct {
-	pc  *webrtc.PeerConnection
-	sfu *sfu.SFU
-}
+// // 创建一个包装器结构体
+// type peerConnectionWrapper struct {
+// 	pc  *webrtc.PeerConnection
+// 	sfu *sfu.SFU
+// }
 
-// 实现 GetSession 方法
-func (pcw *peerConnectionWrapper) GetSession(sid string) (sfu.Session, sfu.WebRTCTransportConfig) {
-	session, config := pcw.sfu.GetSession(sid)
-	return session, config
-}
+// // 实现 GetSession 方法
+// func (pcw *peerConnectionWrapper) GetSession(sid string) (sfu.Session, sfu.WebRTCTransportConfig) {
+// 	session, config := pcw.sfu.GetSession(sid)
+// 	return session, config
+// }
 
 func startServer(server *http.Server, cfg *config.Config) {
 	log.Printf("服务器运行在 %s...\n", server.Addr)
