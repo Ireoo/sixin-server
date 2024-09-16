@@ -2,3 +2,5 @@
 main.exe
 database.db
 data
+node_modules
+package-lock.json
