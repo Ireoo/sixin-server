@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/Ireoo/sixin-server/models"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -59,6 +60,12 @@ func InitDatabase(dbType DatabaseType, connectionString string) error {
 
 	gormDB := &GormDB{DB: db}
 	CurrentDB = gormDB
+
+	// 添加这行代码来初始化数据表
+	if err := initTables(db); err != nil {
+		return fmt.Errorf("初始化数据表失败: %w", err)
+	}
+
 	return nil
 }
 
@@ -82,4 +89,14 @@ func (g *GormDB) Close() error {
 
 func (g *GormDB) GetDB() *gorm.DB {
 	return g.DB
+}
+
+// 添加这个新函数来初始化数据表
+func initTables(db *gorm.DB) error {
+	return db.AutoMigrate(
+		&models.User{},
+		&models.Room{},
+		&models.RoomByUser{},
+		&models.Message{},
+	)
 }
