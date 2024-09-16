@@ -61,11 +61,9 @@ func SetupAndRun(cfg *config.Config) {
 	db := database.GetCurrentDB()
 
 	// 设置Socket.IO事件处理
-	socketIo.SetupSocketHandlers(db.GetDB(), baseInstance)
-	socketServer := socket.NewServer(server, nil)
+	io := socketIo.SetupSocketHandlers(db.GetDB(), baseInstance)
 
-	// 修改路由处理
-	mux.Handle("/socket.io/", socketServer.ServeHandler(nil))
+	http.Handle("/socket.io/", io.ServeHandler(nil))
 
 	// 初始化WebRTC服务器
 	_webrtcServer := webrtcServer.NewWebRTCServer()

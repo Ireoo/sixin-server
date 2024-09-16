@@ -15,7 +15,7 @@ var db *gorm.DB
 var baseInstance *base.Base
 var io *socket.Server
 
-func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) {
+func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server {
 	db = database
 	baseInstance = baseInst
 
@@ -62,6 +62,8 @@ func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) {
 			fmt.Println("连接断开:", client.Id(), reason)
 		})
 	})
+
+	return io
 }
 
 func handleSelf(client *socket.Socket) {
