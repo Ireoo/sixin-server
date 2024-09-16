@@ -48,6 +48,10 @@ func SetupAndRun(cfg *config.Config) {
 	baseInstance := &base.Base{}
 
 	// 获取数据库实例
+	err := database.InitDatabase(database.DatabaseType(cfg.DBType), cfg.DBConn)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
 	db := database.GetCurrentDB()
 
 	// 设置Socket.IO事件处理
@@ -81,7 +85,7 @@ func SetupAndRun(cfg *config.Config) {
 	go func() {
 		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort) // 假设配置中有StunPort
 		if err := stunServer.StartSTUNServer(stunAddress); err != nil {
-			log.Printf("STUN服务器启动失败: %v", err)
+			log.Printf("Failed to start STUN server: %v", err)
 		}
 	}()
 
@@ -94,7 +98,7 @@ func SetupAndRun(cfg *config.Config) {
 	// server.Handler = mux
 
 	// 启动服务器
-	startServer(server, cfg)
+	startServer(server)
 }
 
 func handleRoutes() http.HandlerFunc {
@@ -200,7 +204,7 @@ func handleRoutes() http.HandlerFunc {
 // 	return session, config
 // }
 
-func startServer(server *http.Server, cfg *config.Config) {
-	log.Printf("服务器运行在 %s...\n", server.Addr)
+func startServer(server *http.Server) {
+	log.Printf("Server running on %s...\n", server.Addr)
 	log.Fatal(server.ListenAndServe())
 }

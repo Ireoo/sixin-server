@@ -44,6 +44,7 @@ func StartSTUNServer(address string) error {
 	}
 	defer conn.Close()
 
+	// 打印STUN服务器启动信息
 	log.Printf("STUN server started at %s", address)
 
 	for {
