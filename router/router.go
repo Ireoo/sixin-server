@@ -60,8 +60,7 @@ func SetupAndRun(cfg *config.Config) {
 	r.Use(loggerMiddleware())
 
 	// Socket.IO路由
-	r.GET("/socket.io/*any", gin.WrapH(socketServer))
-	r.POST("/socket.io/*any", gin.WrapH(socketServer))
+	r.Any("/socket.io/*any", gin.WrapH(socketServer))
 
 	// WebRTC路由
 	r.GET("/webrtc", func(c *gin.Context) {
