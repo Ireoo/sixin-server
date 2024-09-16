@@ -132,5 +132,6 @@ jobs:
           files: |
             **/sixin-server-*
           tag_name: ${{ github.ref == 'refs/heads/main' && format('t{0}', steps.date.outputs.date) || github.ref }}
+          release_name: ${{ github.ref == 'refs/heads/main' && format('Test {0}', steps.date.outputs.date) || github.ref }}
           prerelease: ${{ github.ref == 'refs/heads/main' }}
           draft: false
