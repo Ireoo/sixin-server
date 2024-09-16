@@ -3,10 +3,12 @@ package socketIo
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/Ireoo/sixin-server/base"
 	models "github.com/Ireoo/sixin-server/models"
 	"github.com/google/uuid"
+	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gorm.io/gorm"
 )
@@ -14,6 +16,7 @@ import (
 var db *gorm.DB
 var baseInstance *base.Base
 var io *socket.Server
+var peerConnections = make(map[string]*webrtc.PeerConnection)
 
 func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server {
 	db = database
@@ -60,6 +63,137 @@ func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server 
 
 		client.On("disconnecting", func(reason ...any) {
 			fmt.Println("连接断开:", client.Id(), reason)
+			clientID := string(client.Id())
+			if peerConnection, ok := peerConnections[clientID]; ok {
+				peerConnection.Close()            // 关闭 PeerConnection
+				delete(peerConnections, clientID) // 从 map 中删除
+			}
+		})
+
+		// 监听来自客户端的 "offer" 信令
+		client.On("offer", func(sdp ...any) {
+			if len(sdp) == 0 {
+				return
+			}
+
+			sdpStr, ok := sdp[0].(string)
+			if !ok {
+				fmt.Println("SDP 不是字符串类型")
+				return
+			}
+
+			fmt.Printf("收到 SDP Offer: %s\n", sdpStr)
+
+			// 创建 PeerConnection
+			peerConnection, err := webrtc.NewPeerConnection(webrtc.Configuration{})
+			if err != nil {
+				log.Printf("创建 PeerConnection 失败: %v", err)
+				return
+			}
+			peerConnections[string(client.Id())] = peerConnection
+
+			offer := webrtc.SessionDescription{}
+			if err := json.Unmarshal([]byte(sdpStr), &offer); err != nil {
+				fmt.Printf("解析 Offer SDP 失败: %v", err)
+				client.Emit("error", "Offer SDP 无效")
+				return
+			}
+
+			// 设置远端描述为 Offer
+			if err := peerConnection.SetRemoteDescription(offer); err != nil {
+				fmt.Printf("设置远端描述失败: %v", err)
+				client.Emit("error", "设置远端描述失败")
+				return
+			}
+
+			// 创建 Answer 并发送给客户端
+			answer, err := peerConnection.CreateAnswer(nil)
+			if err != nil {
+				fmt.Printf("创建 SDP Answer 失败: %v", err)
+				client.Emit("error", "创建 Answer 失败")
+				return
+			}
+
+			if err := peerConnection.SetLocalDescription(answer); err != nil {
+				fmt.Printf("设置本地描述失败: %v", err)
+				client.Emit("error", "设置本地描述失败")
+				return
+			}
+
+			// 将 SDP Answer 发送回客户端
+			answerJSON, err := json.Marshal(answer)
+			if err != nil {
+				fmt.Printf("序列化 SDP Answer 失败: %v", err)
+				return
+			}
+			client.Emit("answer", string(answerJSON))
+		})
+
+		// 监听来自客户端的 "answer" 信令
+		client.On("answer", func(sdp ...any) {
+			if len(sdp) == 0 {
+				return
+			}
+
+			sdpStr, ok := sdp[0].(string)
+			if !ok {
+				fmt.Println("SDP 不是字符串类型")
+				return
+			}
+
+			fmt.Printf("收到 SDP Answer: %s\n", sdpStr)
+
+			// 假设在这里更新 PeerConnection 的远端描述为 Answer
+			answer := webrtc.SessionDescription{}
+			if err := json.Unmarshal([]byte(sdpStr), &answer); err != nil {
+				log.Printf("解析 Answer SDP 失败: %v", err)
+				client.Emit("error", "Answer SDP 无效")
+				return
+			}
+
+			peerConnection, exists := peerConnections[string(client.Id())]
+			if !exists {
+				log.Printf("PeerConnection 未找到")
+				return
+			}
+
+			// 更新远端描述为 Answer
+			if err := peerConnection.SetRemoteDescription(answer); err != nil {
+				log.Printf("设置远端描述失败: %v", err)
+				client.Emit("error", "设置远端描述失败")
+				return
+			}
+		})
+
+		// 监听 ICE 候选消息
+		client.On("ice-candidate", func(candidate ...any) {
+			if len(candidate) == 0 {
+				return
+			}
+
+			candidateStr, ok := candidate[0].(string)
+			if !ok {
+				fmt.Println("ICE 候选不是字符串类型")
+				return
+			}
+			fmt.Printf("收到 ICE 候选: %s\n", candidateStr)
+
+			peerConnection, exists := peerConnections[string(client.Id())]
+			if !exists {
+				log.Printf("PeerConnection 未找到，无法添加 ICE 候选")
+				return
+			}
+
+			// 解析 ICE 候选并添加到 PeerConnection
+			iceCandidate := webrtc.ICECandidateInit{}
+			if err := json.Unmarshal([]byte(candidateStr), &iceCandidate); err != nil {
+				log.Printf("解析 ICE 候选失败: %v", err)
+				return
+			}
+
+			if err := peerConnection.AddICECandidate(iceCandidate); err != nil {
+				log.Printf("添加 ICE 候选失败: %v", err)
+			}
 		})
 	})
 
@@ -189,7 +323,15 @@ func handleMessage(client *socket.Socket, args ...any) {
 }
 
 func sendMessageToUser(userID uint, message interface{}) {
-	io.Sockets().Emit("message", message)
+	sockets := io.Sockets().Sockets()
+	sockets.Range(func(key socket.SocketId, value *socket.Socket) bool {
+		client := value
+		if client.Id() == socket.SocketId(fmt.Sprintf("%d", userID)) {
+			client.Emit("message", message)
+			return false
+		}
+		return true
+	})
 }
 
 func recordMessage(message models.Message) error {

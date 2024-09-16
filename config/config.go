@@ -31,6 +31,7 @@ func InitConfig() *Config {
 	dbConnFlag := flag.String("db-uri", "./database.db", "数据库连接地址")
 	hostFlag := flag.String("host", "0.0.0.0", "服务器主机名")
 	portFlag := flag.Int("port", 80, "服务器端口")
+	stunPortFlag := flag.Int("stun-port", 3478, "STUN 服务器端口")
 	testFlag := flag.Bool("test", false, "测试模式，启动后立即关闭")
 	flag.Parse()
 
@@ -38,6 +39,7 @@ func InitConfig() *Config {
 	config := &Config{
 		Host:     getEnv("HOST", *hostFlag),
 		Port:     getEnvAsInt("PORT", *portFlag),
+		StunPort: getEnvAsInt("STUN_PORT", *stunPortFlag), // 新增 StunPort 配置
 		DBType:   getEnv("DB_TYPE", *dbTypeFlag),
 		DBConn:   getEnv("DB_URI", *dbConnFlag),
 		TestMode: *testFlag,
@@ -66,6 +68,6 @@ func getEnvAsInt(key string, defaultValue int) int {
 
 // String 方法用于打印配置信息
 func (c *Config) String() string {
-	return fmt.Sprintf("Host: %s, Port: %d, DBType: %s, DBConn: %s, TestMode: %v",
-		c.Host, c.Port, c.DBType, c.DBConn, c.TestMode)
+	return fmt.Sprintf("Host: %s, StunPort: %d, Port: %d, DBType: %s, DBConn: %s, TestMode: %v",
+		c.Host, c.StunPort, c.Port, c.DBType, c.DBConn, c.TestMode)
 }
