@@ -142,7 +142,7 @@ func startServer(server *http.Server, cfg *config.Config) {
 	cancel()
 
 	// 创建一个带超时的上下文用于关闭 HTTP 服务器
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second) // 增加超时时间到10秒
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
