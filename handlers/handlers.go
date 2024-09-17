@@ -3,6 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 // 响应结构体
@@ -36,7 +38,9 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetUser 获取特定用户
-func GetUser(w http.ResponseWriter, r *http.Request, id string) {
+func GetUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
 	// 这里应该实现获取特定用户的逻辑
 	sendJSON(w, http.StatusOK, Response{
 		Message: "获取用户",
@@ -45,7 +49,9 @@ func GetUser(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 // UpdateUser 更新用户信息
-func UpdateUser(w http.ResponseWriter, r *http.Request, id string) {
+func UpdateUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
 	// 这里应该实现更新用户信息的逻辑
 	sendJSON(w, http.StatusOK, Response{
 		Message: "更新用户信息",
@@ -54,7 +60,9 @@ func UpdateUser(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 // DeleteUser 删除用户
-func DeleteUser(w http.ResponseWriter, r *http.Request, id string) {
+func DeleteUser(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id := vars["id"]
 	// 这里应该实现删除用户的逻辑
 	sendJSON(w, http.StatusOK, Response{
 		Message: "删除用户",

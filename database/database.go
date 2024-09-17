@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/Ireoo/sixin-server/models"
 	"gorm.io/driver/clickhouse"
@@ -33,8 +34,9 @@ type GormDB struct {
 	DB *gorm.DB
 }
 
-var CurrentDB Database
+var currentDB Database
 
+// 初始化数据库并应用迁移
 func InitDatabase(dbType DatabaseType, connectionString string) error {
 	var db *gorm.DB
 	var err error
@@ -59,9 +61,9 @@ func InitDatabase(dbType DatabaseType, connectionString string) error {
 	}
 
 	gormDB := &GormDB{DB: db}
-	CurrentDB = gormDB
+	currentDB = gormDB
 
-	// 添加这行代码来初始化数据表
+	// 初始化数据表
 	if err := initTables(db); err != nil {
 		return fmt.Errorf("初始化数据表失败: %w", err)
 	}
@@ -70,7 +72,7 @@ func InitDatabase(dbType DatabaseType, connectionString string) error {
 }
 
 func GetCurrentDB() Database {
-	return CurrentDB
+	return currentDB
 }
 
 // GormDB 方法实现
@@ -91,12 +93,13 @@ func (g *GormDB) GetDB() *gorm.DB {
 	return g.DB
 }
 
-// 添加这个新函数来初始化数据表
+// 使用 models.GetAllModels() 初始化数据表
 func initTables(db *gorm.DB) error {
-	return db.AutoMigrate(
-		&models.User{},
-		&models.Room{},
-		&models.RoomByUser{},
-		&models.Message{},
-	)
+	models := models.GetAllModels()
+	if err := db.AutoMigrate(models...); err != nil {
+		return err
+	}
+
+	log.Println("数据库表初始化成功。")
+	return nil
 }

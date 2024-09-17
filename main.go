@@ -1,10 +1,8 @@
 package main
 
 import (
-	"log"
-
+	"fmt"
 	"github.com/Ireoo/sixin-server/config"
-	"github.com/Ireoo/sixin-server/database"
 	"github.com/Ireoo/sixin-server/router"
 )
 
@@ -12,11 +10,8 @@ func main() {
 	// 初始化配置
 	cfg := config.InitConfig()
 
-	// 初始化数据库
-	if err := database.InitDatabase(database.DatabaseType(cfg.DBType), cfg.DBConn); err != nil {
-
-		log.Fatalf("初始化数据库失败: %v", err)
-	}
+	// 打印配置
+	fmt.Printf("配置: %+v\n", cfg)
 
 	// 设置并启动服务器
 	router.SetupAndRun(cfg)
