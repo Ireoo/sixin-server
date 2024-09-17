@@ -212,6 +212,8 @@ func handleMessage(client *socket.Socket, args ...any) {
 			}
 		}
 		data.Message.MentionIDList = ids
+	} else {
+		data.Message.MentionIDList = []uint{}
 	}
 
 	if data.Message.MsgID == "" {
