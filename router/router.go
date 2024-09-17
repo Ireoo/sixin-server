@@ -99,6 +99,7 @@ func SetupAndRun(cfg *config.Config) {
 
 	// 设置 Socket.IO
 	router.Handle("/socket.io/", io.ServeHandler(nil))
+	router.Handle("/socket.io/{any:.*}", io.ServeHandler(nil))
 
 	// 创建 http.Server 实例
 	server := &http.Server{
