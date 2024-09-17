@@ -203,6 +203,17 @@ func handleMessage(client *socket.Socket, args ...any) {
 		return
 	}
 
+	// 检查并转换 MentionIDList 字段
+	if mentionIDList, ok := data.Message.Text["mentionIdList"].([]interface{}); ok {
+		var ids []uint
+		for _, id := range mentionIDList {
+			if idFloat, ok := id.(float64); ok {
+				ids = append(ids, uint(idFloat))
+			}
+		}
+		data.Message.MentionIDList = ids
+	}
+
 	if data.Message.MsgID == "" {
 		data.Message.MsgID = uuid.New().String()
 	}
