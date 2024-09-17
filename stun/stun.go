@@ -1,19 +1,12 @@
 package stunServer
 
 import (
-	"context"
 	"log"
 	"net"
 
 	"github.com/pion/stun"
 )
 
-const (
-	MaxBufferSize = 2048
-	MaxGoroutines = 1000
-)
-
-// Custom Transaction ID Setter
 type transactionIDSetter [stun.TransactionIDSize]byte
 
 func (t transactionIDSetter) AddTo(m *stun.Message) error {
@@ -21,79 +14,75 @@ func (t transactionIDSetter) AddTo(m *stun.Message) error {
 	return nil
 }
 
-func handleSTUNRequest(conn *net.UDPConn, addr *net.UDPAddr, message *stun.Message) error {
+// 处理 STUN 请求
+func handleSTUNRequest(conn *net.UDPConn, addr *net.UDPAddr, msg *stun.Message) error {
 	// Create a custom Transaction ID Setter using the incoming message's Transaction ID
-	tidSetter := transactionIDSetter(message.TransactionID)
+	tidSetter := transactionIDSetter(msg.TransactionID)
 
-	// Build the response message
+	// 创建 STUN 响应消息
 	response, err := stun.Build(
-		stun.NewType(stun.MethodBinding, stun.ClassSuccessResponse),
-		tidSetter, // Use the custom Transaction ID Setter
+		stun.NewType(stun.MethodBinding, stun.ClassSuccessResponse), // 生成 STUN 成功响应类型
+		tidSetter, // 直接使用 stun.TransactionID
 		&stun.XORMappedAddress{
 			IP:   addr.IP,
 			Port: addr.Port,
 		},
-		stun.Fingerprint,
+		stun.Fingerprint, // 添加指纹
 	)
 	if err != nil {
 		return err
 	}
 
+	// 发送 STUN 响应
 	_, err = conn.WriteToUDP(response.Raw, addr)
 	return err
 }
 
-func StartSTUNServer(ctx context.Context, address string) error {
-	udpAddr, err := net.ResolveUDPAddr("udp", address)
+// 启动 STUN 服务器
+func StartSTUNServer(address string) error {
+	// 解析 UDP 地址
+	udpAddr, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.ListenUDP("udp", udpAddr)
+	// 开始监听 UDP 连接
+	conn, err := net.ListenUDP("udp4", udpAddr)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
+	// 打印STUN服务器启动信息
 	log.Printf("STUN server started at %s", address)
 
-	tokens := make(chan struct{}, MaxGoroutines)
-
 	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Shutting down STUN server...")
-			return nil
-		default:
-			buffer := make([]byte, MaxBufferSize)
-			n, remoteAddr, err := conn.ReadFromUDP(buffer)
-			if err != nil {
-				log.Printf("Error reading from UDP: %v", err)
-				continue
-			}
-
-			data := make([]byte, n)
-			copy(data, buffer[:n])
-
-			if !stun.IsMessage(data) {
-				log.Println("Received non-STUN message")
-				continue
-			}
-
-			tokens <- struct{}{}
-			go func(remoteAddr *net.UDPAddr, data []byte) {
-				defer func() { <-tokens }()
-
-				message := &stun.Message{Raw: data}
-				if err := message.Decode(); err != nil {
-					log.Printf("Error decoding STUN message from %s: %v", remoteAddr, err)
-					return
-				}
-
-				if err := handleSTUNRequest(conn, remoteAddr, message); err != nil {
-					log.Printf("Error handling STUN request from %s: %v", remoteAddr, err)
-				}
-			}(remoteAddr, data)
+		// 读取 UDP 数据
+		buffer := make([]byte, 1024)
+		n, remoteAddr, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			log.Printf("Error reading from UDP: %v", err)
+			continue
 		}
+
+		// 检查是否是 STUN 消息
+		if !stun.IsMessage(buffer[:n]) {
+			log.Println("Received non-STUN message")
+			continue
+		}
+
+		// 解码 STUN 消息
+		message := &stun.Message{Raw: buffer[:n]}
+		if err := message.Decode(); err != nil {
+			log.Printf("Error decoding STUN message: %v", err)
+			continue
+		}
+
+		// 并发处理 STUN 请求
+		go func(remoteAddr *net.UDPAddr, message *stun.Message) {
+			if err := handleSTUNRequest(conn, remoteAddr, message); err != nil {
+				log.Printf("Error handling STUN request from %s: %v", remoteAddr, err)
+			}
+		}(remoteAddr, message)
 	}
 }
