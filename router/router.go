@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +17,7 @@ import (
 	"github.com/Ireoo/sixin-server/handlers"
 	"github.com/Ireoo/sixin-server/middleware"
 	"github.com/Ireoo/sixin-server/socketio"
-	"github.com/Ireoo/sixin-server/stun"
+	stunServer "github.com/Ireoo/sixin-server/stun"
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
@@ -89,10 +90,14 @@ func SetupAndRun(cfg *config.Config) {
 	// 静态文件服务
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
+	// 创建上下文和取消函数
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// 设置 STUN 服务器
 	go func() {
-		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort) // 假设配置中有 StunPort
-		if err := stunServer.StartSTUNServer(stunAddress); err != nil {
+		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort)
+		if err := stunServer.StartSTUNServer(ctx, stunAddress); err != nil {
 			log.Printf("Failed to start STUN server: %v", err)
 		}
 	}()
@@ -107,6 +112,9 @@ func SetupAndRun(cfg *config.Config) {
 
 	// 启动服务器
 	startServer(server, io)
+
+	// 在退出时取消上下文
+	cancel()
 }
 
 func handleRoutes() http.HandlerFunc {
@@ -120,6 +128,13 @@ func handleRoutes() http.HandlerFunc {
 				handlers.GetUsers(w, r)
 			case http.MethodPost:
 				handlers.CreateUser(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		case "/api/message":
+			switch r.Method {
+			case http.MethodPost:
+				handlers.CreateMessage(w, r)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -144,8 +159,13 @@ func handleRoutes() http.HandlerFunc {
 }
 
 func startServer(server *http.Server, io *socket.Server) {
-	log.Printf("Server running on %s...\n", server.Addr)
-	log.Fatal(server.ListenAndServe())
+	log.Printf("Server running on %s\n", server.Addr)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
 
 	exit := make(chan struct{})
 	SignalC := make(chan os.Signal, 1) // 添加缓冲区
@@ -163,5 +183,6 @@ func startServer(server *http.Server, io *socket.Server) {
 
 	<-exit
 	io.Close(nil)
+	server.Shutdown(context.Background())
 	os.Exit(0)
 }

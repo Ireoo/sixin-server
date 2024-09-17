@@ -231,7 +231,7 @@ func handleMessage(client *socket.Socket, args ...any) {
 		RoomID:        data.Message.RoomID,
 	}
 
-	if err := recordMessage(&message); err != nil {
+	if err := RecordMessage(&message); err != nil {
 		client.Emit("error", "保存消息错误: "+err.Error())
 		return
 	}
@@ -243,17 +243,26 @@ func handleMessage(client *socket.Socket, args ...any) {
 		return
 	}
 
-	sendData := struct {
-		User    *models.User    `json:"user"`
-		Room    *models.Room    `json:"room"`
-		Message *models.Message `json:"message"`
-	}{
-		User:    message.Talker,
-		Room:    message.Room,
-		Message: &message,
+	var recipientID uint
+	if message.ListenerID != 0 {
+		recipientID = message.ListenerID
+	} else {
+		recipientID = message.RoomID
 	}
 
-	sendMessageToUsers(sendData, message.TalkerID, message.ListenerID)
+	sendData := struct {
+		Talker   *models.User    `json:"talker"`
+		Listener *models.User    `json:"listener,omitempty"`
+		Room     *models.Room    `json:"room,omitempty"`
+		Message  *models.Message `json:"message"`
+	}{
+		Talker:   message.Talker,
+		Listener: message.Listener,
+		Room:     message.Room,
+		Message:  &message,
+	}
+
+	SendMessageToUsers(sendData, message.TalkerID, recipientID)
 }
 
 // handleOffer 处理 "offer" 信令
@@ -394,9 +403,9 @@ func handleIceCandidate(client *socket.Socket, candidate ...any) {
 }
 
 // sendMessageToUsers 发送消息给多个用户
-func sendMessageToUsers(message interface{}, userIDs ...uint) {
+func SendMessageToUsers(message interface{}, userIDs ...uint) {
 	for _, userID := range userIDs {
-		socketID := socket.SocketId(fmt.Sprintf("%d", userID)) // 将 socketID 转换为 socket.SocketId 类型
+		socketID := socket.SocketId(fmt.Sprintf("%d", userID))
 		clients := io.Sockets().Sockets()
 		clients.Range(func(id socket.SocketId, client *socket.Socket) bool {
 			if client.Id() == socketID {
@@ -404,15 +413,15 @@ func sendMessageToUsers(message interface{}, userIDs ...uint) {
 				if err != nil {
 					log.Printf("发送消息给用户 %d 失败: %v", userID, err)
 				}
-				return false // 停止遍历
+				return false
 			}
-			return true // 继续遍历
+			return true
 		})
 	}
 }
 
 // recordMessage 保存消息到数据库
-func recordMessage(message *models.Message) error {
+func RecordMessage(message *models.Message) error {
 	return db.Create(message).Error
 }
 

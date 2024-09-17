@@ -1,6 +1,7 @@
 package stunServer
 
 import (
+	"context"
 	"log"
 	"net"
 
@@ -39,7 +40,7 @@ func handleSTUNRequest(conn *net.UDPConn, addr *net.UDPAddr, msg *stun.Message) 
 }
 
 // 启动 STUN 服务器
-func StartSTUNServer(address string) error {
+func StartSTUNServer(ctx context.Context, address string) error {
 	// 解析 UDP 地址
 	udpAddr, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
@@ -56,13 +57,25 @@ func StartSTUNServer(address string) error {
 	// 打印STUN服务器启动信息
 	log.Printf("STUN server started at %s", address)
 
+	// 创建一个用于接收取消信号的通道
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+		log.Println("STUN server shutting down")
+	}()
+
 	for {
 		// 读取 UDP 数据
 		buffer := make([]byte, 1024)
 		n, remoteAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			log.Printf("Error reading from UDP: %v", err)
-			continue
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				log.Printf("Error reading from UDP: %v", err)
+				continue
+			}
 		}
 
 		// 检查是否是 STUN 消息

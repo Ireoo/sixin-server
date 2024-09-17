@@ -3,6 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/Ireoo/sixin-server/models"
+	"github.com/Ireoo/sixin-server/socketio"
 )
 
 // 响应结构体
@@ -60,4 +63,43 @@ func DeleteUser(w http.ResponseWriter, r *http.Request, id string) {
 		Message: "删除用户",
 		Data:    map[string]string{"id": id},
 	})
+}
+
+// CreateMessage 创建并发送消息
+func CreateMessage(w http.ResponseWriter, r *http.Request) {
+	var message models.Message
+	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+		sendJSON(w, http.StatusBadRequest, Response{Message: "无效的请求数据", Data: err.Error()})
+		return
+	}
+
+	// 保存消息到数据库
+	if err := socketio.RecordMessage(&message); err != nil {
+		sendJSON(w, http.StatusInternalServerError, Response{Message: "保存消息失败", Data: err.Error()})
+		return
+	}
+
+	// 发送消息给发送者和接收者
+	var recipientID uint
+	if message.ListenerID != 0 {
+		recipientID = message.ListenerID
+	} else {
+		recipientID = message.RoomID
+	}
+
+	sendData := struct {
+		Talker   *models.User    `json:"talker"`
+		Listener *models.User    `json:"listener,omitempty"`
+		Room     *models.Room    `json:"room,omitempty"`
+		Message  *models.Message `json:"message"`
+	}{
+		Talker:   message.Talker,
+		Listener: message.Listener,
+		Room:     message.Room,
+		Message:  &message,
+	}
+
+	socketio.SendMessageToUsers(sendData, message.TalkerID, recipientID)
+
+	sendJSON(w, http.StatusCreated, Response{Message: "消息已发送", Data: message})
 }
