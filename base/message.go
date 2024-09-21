@@ -1,4 +1,4 @@
-package message
+package base
 
 import (
 	"encoding/json"
@@ -7,17 +7,14 @@ import (
 
 	"github.com/Ireoo/sixin-server/models"
 	"github.com/google/uuid"
-	"github.com/zishang520/socket.io/v2/socket"
-	"gorm.io/gorm"
 )
 
 type MessageHandler struct {
-	DB *gorm.DB
-	IO *socket.Server
+	Base *Base
 }
 
-func NewMessageHandler(db *gorm.DB, io *socket.Server) *MessageHandler {
-	return &MessageHandler{DB: db, IO: io}
+func NewMessageHandler(base *Base) *MessageHandler {
+	return &MessageHandler{Base: base}
 }
 
 func (mh *MessageHandler) HandleMessage(messageData []byte) error {
@@ -71,7 +68,7 @@ func (mh *MessageHandler) HandleMessage(messageData []byte) error {
 	}
 
 	// 加载关联的用户和房间信息
-	if err := mh.DB.Preload("Talker").Preload("Listener").Preload("Room").
+	if err := mh.Base.DB.Preload("Talker").Preload("Listener").Preload("Room").
 		First(&message, "msg_id = ?", message.MsgID).Error; err != nil {
 		return fmt.Errorf("加载消息关联信息错误: %v", err)
 	}
@@ -80,12 +77,12 @@ func (mh *MessageHandler) HandleMessage(messageData []byte) error {
 }
 
 func (mh *MessageHandler) RecordMessage(message *models.Message) error {
-	return mh.DB.Create(message).Error
+	return mh.Base.DB.Create(message).Error
 }
 
 func (mh *MessageHandler) GetChats() ([]models.Message, error) {
 	var messages []models.Message
-	if err := mh.DB.Preload("Talker").Preload("Listener").Preload("Room").
+	if err := mh.Base.DB.Preload("Talker").Preload("Listener").Preload("Room").
 		Order("timestamp DESC").Limit(400).Find(&messages).Error; err != nil {
 		return nil, err
 	}
@@ -97,7 +94,7 @@ func (mh *MessageHandler) GetChats() ([]models.Message, error) {
 // 添加 GetMessageByID 方法
 func (mh *MessageHandler) GetMessageByID(msgID string) (*models.Message, error) {
 	var message models.Message
-	err := mh.DB.Preload("Talker").Preload("Listener").Preload("Room").
+	err := mh.Base.DB.Preload("Talker").Preload("Listener").Preload("Room").
 		First(&message, "msg_id = ?", msgID).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取消息失败: %v", err)
@@ -156,30 +153,19 @@ func (mh *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) 
 		Message:  message,
 	}
 
-	// 直接在这里发送消息给用户
-	mh.sendMessageToUsers(sendData, message.TalkerID, recipientID)
+	// 使用 Base 的 SendMessageToUsers 方法发送消息
+	mh.Base.SendMessageToUsers(sendData, message.TalkerID, recipientID)
 
+	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	// 返回创建的消息信息
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"message": "消息已发送",
-		"data":    message,
+		"status":  "success",
+		"message": "消息已创建并发送",
+		"data":    sendData,
 	})
 }
 
-// sendMessageToUsers 发送消息给多个用户
-func (mh *MessageHandler) sendMessageToUsers(message interface{}, userIDs ...uint) {
-	for _, userID := range userIDs {
-		socketID := socket.SocketId(fmt.Sprintf("%d", userID))
-		clients := mh.IO.Sockets().Sockets()
-		clients.Range(func(id socket.SocketId, client *socket.Socket) bool {
-			if client.Id() == socketID {
-				err := client.Emit("message", message)
-				if err != nil {
-					fmt.Printf("发送消息给用户 %d 失败: %v\n", userID, err)
-				}
-				return false
-			}
-			return true
-		})
-	}
-}
+// 删除 sendMessageToUsers 方法，因为它已经移动到 base.go

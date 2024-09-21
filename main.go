@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/Ireoo/sixin-server/config"
 	"github.com/Ireoo/sixin-server/router"
 )

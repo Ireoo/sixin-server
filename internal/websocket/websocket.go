@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Ireoo/sixin-server/message"
 	"github.com/gorilla/websocket"
 )
 
@@ -16,17 +15,14 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebSocketManager struct {
-	connections    map[string][]*websocket.Conn
-	mu             sync.RWMutex
-	sendMessage    func(text, msg string)
-	messageHandler *message.MessageHandler
+	connections map[string][]*websocket.Conn
+	mu          sync.RWMutex
+	sendMessage func(text, msg string)
 }
 
-func NewWebSocketManager(sendMessageFunc func(text, msg string), messageHandler *message.MessageHandler) *WebSocketManager {
+func NewWebSocketManager() *WebSocketManager {
 	return &WebSocketManager{
-		connections:    make(map[string][]*websocket.Conn),
-		sendMessage:    sendMessageFunc,
-		messageHandler: messageHandler,
+		connections: make(map[string][]*websocket.Conn),
 	}
 }
 
@@ -76,12 +72,6 @@ func (wsm *WebSocketManager) removeConnection(connType string, conn *websocket.C
 func (wsm *WebSocketManager) handleMessage(connType string, message []byte) {
 	// 处理从 WebSocket 接收到的消息
 	log.Printf("Received WebSocket message from %s: %s", connType, string(message))
-
-	// 使用 MessageHandler 处理消息
-	if err := wsm.messageHandler.HandleMessage(message); err != nil {
-		log.Printf("Error handling message: %v", err)
-		return
-	}
 
 	// 调用 sendMessage 函数处理消息
 	wsm.sendMessage(string(message), string(message))

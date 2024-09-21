@@ -1,23 +1,22 @@
-package room
+package base
 
 import (
 	"net/http"
 
 	"github.com/Ireoo/sixin-server/models"
-	"gorm.io/gorm"
 )
 
 type RoomHandler struct {
-	DB *gorm.DB
+	Base *Base
 }
 
-func NewRoomHandler(db *gorm.DB) *RoomHandler {
-	return &RoomHandler{DB: db}
+func NewRoomHandler(base *Base) *RoomHandler {
+	return &RoomHandler{Base: base}
 }
 
 func (rh *RoomHandler) GetRooms(w http.ResponseWriter, r *http.Request) {
 	var rooms []models.Room
-	if err := rh.DB.Preload("Owner").Preload("Members").Find(&rooms).Error; err != nil {
+	if err := rh.Base.DB.Preload("Owner").Preload("Members").Find(&rooms).Error; err != nil {
 		http.Error(w, "获取房间列表失败", http.StatusInternalServerError)
 		return
 	}
@@ -27,7 +26,7 @@ func (rh *RoomHandler) GetRooms(w http.ResponseWriter, r *http.Request) {
 func (rh *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	var room models.Room
 	// 解析请求体并创建房间
-	if err := rh.DB.Create(&room).Error; err != nil {
+	if err := rh.Base.DB.Create(&room).Error; err != nil {
 		http.Error(w, "创建房间失败", http.StatusInternalServerError)
 		return
 	}
@@ -36,7 +35,7 @@ func (rh *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 
 func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request, id string) {
 	var room models.Room
-	if err := rh.DB.Preload("Owner").Preload("Members").First(&room, id).Error; err != nil {
+	if err := rh.Base.DB.Preload("Owner").Preload("Members").First(&room, id).Error; err != nil {
 		http.Error(w, "获取房间失败", http.StatusNotFound)
 		return
 	}
@@ -45,7 +44,7 @@ func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request, id string
 
 func (rh *RoomHandler) UpdateRoom(w http.ResponseWriter, r *http.Request, id string) {
 	var room models.Room
-	if err := rh.DB.First(&room, id).Error; err != nil {
+	if err := rh.Base.DB.First(&room, id).Error; err != nil {
 		http.Error(w, "房间不存在", http.StatusNotFound)
 		return
 	}
@@ -54,7 +53,7 @@ func (rh *RoomHandler) UpdateRoom(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (rh *RoomHandler) DeleteRoom(w http.ResponseWriter, r *http.Request, id string) {
-	if err := rh.DB.Delete(&models.Room{}, id).Error; err != nil {
+	if err := rh.Base.DB.Delete(&models.Room{}, id).Error; err != nil {
 		http.Error(w, "删除房间失败", http.StatusInternalServerError)
 		return
 	}

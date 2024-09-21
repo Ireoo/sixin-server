@@ -6,11 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Ireoo/sixin-server/handlers"
-	"github.com/Ireoo/sixin-server/message" // Added import for message package
-	"github.com/Ireoo/sixin-server/middleware"
-	"github.com/Ireoo/sixin-server/room"
-	"github.com/Ireoo/sixin-server/user"
+	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/internal/handlers"
+	"github.com/Ireoo/sixin-server/internal/middleware"
 )
 
 type statusResponseWriter struct {
@@ -57,18 +55,19 @@ func ChainMiddlewares(handler http.HandlerFunc, middlewares ...func(http.Handler
 }
 
 var (
-	userHandler    *user.UserHandler
-	roomHandler    *room.RoomHandler
-	messageHandler *message.MessageHandler // Added messageHandler variable
+	userHandler    *base.UserHandler
+	roomHandler    *base.RoomHandler
+	messageHandler *base.MessageHandler // Added messageHandler variable
 )
 
 // SetHandlers 设置处理器
-func SetHandlers(uh *user.UserHandler, rh *room.RoomHandler) {
+func SetHandlers(uh *base.UserHandler, rh *base.RoomHandler, mh *base.MessageHandler) {
 	userHandler = uh
 	roomHandler = rh
+	messageHandler = mh
 }
 
-func HandleRoutes() http.HandlerFunc {
+func HandleRoutes(b *base.Base) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/ping":
@@ -76,16 +75,16 @@ func HandleRoutes() http.HandlerFunc {
 		case "/api/users":
 			switch r.Method {
 			case http.MethodGet:
-				userHandler.GetUsers(w, r)
+				b.UserHandler.GetUsers(w, r)
 			case http.MethodPost:
-				userHandler.CreateUser(w, r)
+				b.UserHandler.CreateUser(w, r)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
 		case "/api/message":
 			switch r.Method {
 			case http.MethodPost:
-				messageHandler.CreateMessage(w, r)
+				b.MessageHandler.CreateMessage(w, r)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -94,11 +93,11 @@ func HandleRoutes() http.HandlerFunc {
 				id := r.URL.Path[len("/api/users/"):]
 				switch r.Method {
 				case http.MethodGet:
-					userHandler.GetUser(w, r, id)
+					b.UserHandler.GetUser(w, r, id)
 				case http.MethodPut:
-					userHandler.UpdateUser(w, r, id)
+					b.UserHandler.UpdateUser(w, r, id)
 				case http.MethodDelete:
-					userHandler.DeleteUser(w, r, id)
+					b.UserHandler.DeleteUser(w, r, id)
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
@@ -106,11 +105,11 @@ func HandleRoutes() http.HandlerFunc {
 				id := r.URL.Path[len("/api/rooms/"):]
 				switch r.Method {
 				case http.MethodGet:
-					roomHandler.GetRoom(w, r, id)
+					b.RoomHandler.GetRoom(w, r, id)
 				case http.MethodPut:
-					roomHandler.UpdateRoom(w, r, id)
+					b.RoomHandler.UpdateRoom(w, r, id)
 				case http.MethodDelete:
-					roomHandler.DeleteRoom(w, r, id)
+					b.RoomHandler.DeleteRoom(w, r, id)
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
@@ -121,13 +120,12 @@ func HandleRoutes() http.HandlerFunc {
 	}
 }
 
-func SetupHTTPHandlers(uh *user.UserHandler, rh *room.RoomHandler, mh *message.MessageHandler) {
-	SetHandlers(uh, rh)
-	messageHandler = mh
+func SetupHTTPHandlers(b *base.Base) {
+	SetHandlers(b.UserHandler, b.RoomHandler, b.MessageHandler)
 
 	// 设置中间件和路由
 	handler := ChainMiddlewares(
-		HandleRoutes(),
+		HandleRoutes(b),
 		LoggerMiddleware,
 		middleware.CORS,
 	)

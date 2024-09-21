@@ -1,23 +1,22 @@
-package user
+package base
 
 import (
 	"net/http"
 
 	"github.com/Ireoo/sixin-server/models"
-	"gorm.io/gorm"
 )
 
 type UserHandler struct {
-	DB *gorm.DB
+	Base *Base
 }
 
-func NewUserHandler(db *gorm.DB) *UserHandler {
-	return &UserHandler{DB: db}
+func NewUserHandler(base *Base) *UserHandler {
+	return &UserHandler{Base: base}
 }
 
 func (uh *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	var users []models.User
-	if err := uh.DB.Find(&users).Error; err != nil {
+	if err := uh.Base.DB.Find(&users).Error; err != nil {
 		http.Error(w, "获取用户列表失败", http.StatusInternalServerError)
 		return
 	}
@@ -27,7 +26,7 @@ func (uh *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 func (uh *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var user models.User
 	// 解析请求体并创建用户
-	if err := uh.DB.Create(&user).Error; err != nil {
+	if err := uh.Base.DB.Create(&user).Error; err != nil {
 		http.Error(w, "创建用户失败", http.StatusInternalServerError)
 		return
 	}
@@ -36,7 +35,7 @@ func (uh *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 func (uh *UserHandler) GetUser(w http.ResponseWriter, r *http.Request, id string) {
 	var user models.User
-	if err := uh.DB.First(&user, id).Error; err != nil {
+	if err := uh.Base.DB.First(&user, id).Error; err != nil {
 		http.Error(w, "获取用户失败", http.StatusNotFound)
 		return
 	}
@@ -45,7 +44,7 @@ func (uh *UserHandler) GetUser(w http.ResponseWriter, r *http.Request, id string
 
 func (uh *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id string) {
 	var user models.User
-	if err := uh.DB.First(&user, id).Error; err != nil {
+	if err := uh.Base.DB.First(&user, id).Error; err != nil {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
@@ -54,7 +53,7 @@ func (uh *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (uh *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request, id string) {
-	if err := uh.DB.Delete(&models.User{}, id).Error; err != nil {
+	if err := uh.Base.DB.Delete(&models.User{}, id).Error; err != nil {
 		http.Error(w, "删除用户失败", http.StatusInternalServerError)
 		return
 	}

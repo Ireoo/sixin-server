@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
-	"github.com/Ireoo/sixin-server/message"
 	"github.com/Ireoo/sixin-server/models"
+
 	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gorm.io/gorm"
@@ -21,7 +21,7 @@ var (
 	// 用于存储客户端的 PeerConnection
 	peerConnections = make(map[string]*webrtc.PeerConnection)
 	pcMutex         sync.RWMutex
-	messageHandler  *message.MessageHandler
+	messageHandler  *base.MessageHandler
 )
 
 // SetupSocketHandlers 初始化 Socket.IO 服务器并设置事件处理器
@@ -31,8 +31,7 @@ func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server 
 
 	io = socket.NewServer(nil, nil)
 
-	messageHandler = message.NewMessageHandler(database, io)
-
+	messageHandler = base.NewMessageHandler(baseInstance)
 	io.On("connection", handleConnection)
 
 	return io

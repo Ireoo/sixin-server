@@ -9,15 +9,12 @@ import (
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/config"
 	"github.com/Ireoo/sixin-server/database"
-	httpHandler "github.com/Ireoo/sixin-server/http"
+	httpHandler "github.com/Ireoo/sixin-server/internal/http"
+	"github.com/Ireoo/sixin-server/internal/server"
+	"github.com/Ireoo/sixin-server/internal/socketio"
+	stunServer "github.com/Ireoo/sixin-server/internal/stun"
+	"github.com/Ireoo/sixin-server/internal/websocket"
 	"github.com/Ireoo/sixin-server/logger"
-	"github.com/Ireoo/sixin-server/message"
-	"github.com/Ireoo/sixin-server/room"
-	"github.com/Ireoo/sixin-server/server"
-	"github.com/Ireoo/sixin-server/socketio"
-	stunServer "github.com/Ireoo/sixin-server/stun"
-	"github.com/Ireoo/sixin-server/user"
-	"github.com/Ireoo/sixin-server/websocket"
 )
 
 func SetupAndRun(cfg *config.Config) {
@@ -43,15 +40,8 @@ func SetupAndRun(cfg *config.Config) {
 
 	http.Handle("/socket.io/", io.ServeHandler(nil))
 
-	// 创建用户和房间处理器
-	userHandler := user.NewUserHandler(db.GetDB())
-	roomHandler := room.NewRoomHandler(db.GetDB())
-
-	// 创建 MessageHandler
-	messageHandler := message.NewMessageHandler(db.GetDB(), io)
-
 	// 设置 HTTP 处理程序
-	httpHandler.SetupHTTPHandlers(userHandler, roomHandler, messageHandler)
+	httpHandler.SetupHTTPHandlers(baseInstance)
 
 	// 设置 STUN 服务器
 	go func() {
@@ -63,7 +53,7 @@ func SetupAndRun(cfg *config.Config) {
 	}()
 
 	// 创建 WebSocketManager
-	wsManager := websocket.NewWebSocketManager(baseInstance.SendMessage, messageHandler)
+	wsManager := websocket.NewWebSocketManager()
 
 	// 设置 WebSocket 路由
 	http.HandleFunc("/ws", wsManager.HandleWebSocket)

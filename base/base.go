@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ireoo/sixin-server/websocket"
+	"github.com/Ireoo/sixin-server/internal/websocket"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
@@ -34,31 +34,16 @@ type Base struct {
 	mu               sync.Mutex
 	IO               *socket.Server
 	WebSocketManager *websocket.WebSocketManager
+	UserHandler      *UserHandler
+	RoomHandler      *RoomHandler
+	MessageHandler   *MessageHandler
 }
 
 func NewBase() *Base {
-	b := &Base{
-		Folder:       "./data",
-		Self:         make(map[string]interface{}),
-		TargetName:   []string{"香蕉内个布呐呐", "强制分享 cium"},
-		ChatlogsName: []string{"香蕉内个布呐呐", "王超", "L."},
-		EmailNote:    false,
-		ZhuanfaGroup: []string{},
-		Messages: map[string][]string{
-			"m5stack":  {},
-			"telegram": {},
-		},
-		Sendme:           true,
-		ReceiveDevice:    true,
-		Config:           make(map[string]interface{}),
-		IO:               nil, // 初始化为 nil,稍后在 SetIO 方法中设置
-		WebSocketManager: nil,
-	}
-
-	b.loadConfig()
-	b.createSubfolders()
-	b.initMessages()
-
+	b := &Base{}
+	b.UserHandler = NewUserHandler(b)
+	b.RoomHandler = NewRoomHandler(b)
+	b.MessageHandler = NewMessageHandler(b)
 	return b
 }
 
@@ -231,4 +216,32 @@ func (b *Base) SetIO(io *socket.Server) {
 
 func (b *Base) SetWebSocketManager(wsm *websocket.WebSocketManager) {
 	b.WebSocketManager = wsm
+}
+
+func (b *Base) GetWebSocketManager() *websocket.WebSocketManager {
+	return b.WebSocketManager
+}
+
+func (b *Base) GetIO() *socket.Server {
+
+	// 返回 Socket.IO 服务器实例
+	return b.IO
+}
+
+// 添加 sendMessageToUsers 方法
+func (b *Base) SendMessageToUsers(message interface{}, userIDs ...uint) {
+	for _, userID := range userIDs {
+		socketID := socket.SocketId(fmt.Sprintf("%d", userID))
+		clients := b.IO.Sockets().Sockets()
+		clients.Range(func(id socket.SocketId, client *socket.Socket) bool {
+			if client.Id() == socketID {
+				err := client.Emit("message", message)
+				if err != nil {
+					fmt.Printf("发送消息给用户 %d 失败: %v\n", userID, err)
+				}
+				return false
+			}
+			return true
+		})
+	}
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Ireoo/sixin-server/message"
+	"github.com/Ireoo/sixin-server/internal/message"
 )
 
 // 响应结构体
