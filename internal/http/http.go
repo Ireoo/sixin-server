@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/internal/handlers"
 	"github.com/Ireoo/sixin-server/internal/middleware"
+	"github.com/Ireoo/sixin-server/models"
 )
 
 type statusResponseWriter struct {
@@ -75,31 +77,123 @@ func HandleRoutes(b *base.Base) http.HandlerFunc {
 		case "/api/users":
 			switch r.Method {
 			case http.MethodGet:
-				userHandler.GetUsers(w, r)
+				users, err := userHandler.GetUsers()
+				if err != nil {
+					http.Error(w, "获取用户列表失败", http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(users)
 			case http.MethodPost:
-				userHandler.CreateUser(w, r)
+				var user models.User
+
+				// 从请求体解析用户数据到user
+				err := userHandler.CreateUser(&user)
+				if err != nil {
+					http.Error(w, "创建用户失败", http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(user)
+				// 将创建的用户转换为JSON并写入响应
+
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		case "/api/rooms":
+			switch r.Method {
+			case http.MethodGet:
+				rooms, err := roomHandler.GetRooms()
+				if err != nil {
+					http.Error(w, "获取房间列表失败", http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(rooms)
+			case http.MethodPost:
+				var room models.Room
+				if err := json.NewDecoder(r.Body).Decode(&room); err != nil {
+					http.Error(w, "无效的请求数据", http.StatusBadRequest)
+					return
+				}
+				if err := roomHandler.CreateRoom(&room); err != nil {
+					http.Error(w, "创建房间失败", http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(room)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
 		case "/api/message":
 			switch r.Method {
 			case http.MethodPost:
-				messageHandler.CreateMessage(w, r)
+				var messageData []byte
+				if err := json.NewDecoder(r.Body).Decode(&messageData); err != nil {
+					http.Error(w, "无效的请求数据", http.StatusBadRequest)
+					return
+				}
+				message, err := messageHandler.HandleMessage(messageData)
+				if err != nil {
+					http.Error(w, "处理消息失败: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+
+				var recipientID uint
+				if message.ListenerID != 0 {
+					recipientID = message.ListenerID
+				} else {
+					recipientID = message.RoomID
+				}
+
+				sendData := struct {
+					Talker   *models.User    `json:"talker"`
+					Listener *models.User    `json:"listener,omitempty"`
+					Room     *models.Room    `json:"room,omitempty"`
+					Message  *models.Message `json:"message"`
+				}{
+					Talker:   message.Talker,
+					Listener: message.Listener,
+					Room:     message.Room,
+					Message:  message,
+				}
+
+				b.SendMessageToUsers(sendData, message.TalkerID, recipientID)
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status":  "success",
+					"message": "消息已创建并发送",
+					"data":    sendData,
+				})
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 			}
 		default:
 			if strings.HasPrefix(r.URL.Path, "/api/users/") {
 				id := r.URL.Path[len("/api/users/"):]
 				switch r.Method {
 				case http.MethodGet:
-					userHandler.GetUser(w, r, id)
+					user, err := userHandler.GetUser(id)
+					if err != nil {
+						http.Error(w, "获取用户失败", http.StatusNotFound)
+						return
+					}
+					// 将user转换为JSON并写入响应
+					json.NewEncoder(w).Encode(user)
 				case http.MethodPut:
-					userHandler.UpdateUser(w, r, id)
-
+					var updatedUser models.User
+					// 从请求体解析更新的用户数据到updatedUser
+					err := userHandler.UpdateUser(id, &updatedUser)
+					if err != nil {
+						http.Error(w, "更新用户失败", http.StatusInternalServerError)
+						return
+					}
+					// 将更新后的用户转换为JSON并写入响应
 				case http.MethodDelete:
-					userHandler.DeleteUser(w, r, id)
+					err := userHandler.DeleteUser(id)
+					if err != nil {
+						http.Error(w, "删除用户失败", http.StatusInternalServerError)
+						return
+					}
+					// 返回成功删除的响应
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
@@ -108,12 +202,29 @@ func HandleRoutes(b *base.Base) http.HandlerFunc {
 				id := r.URL.Path[len("/api/rooms/"):]
 				switch r.Method {
 				case http.MethodGet:
-					roomHandler.GetRoom(w, r, id)
+					room, err := roomHandler.GetRoom(id)
+					if err != nil {
+						http.Error(w, "获取房间失败", http.StatusNotFound)
+						return
+					}
+					json.NewEncoder(w).Encode(room)
 				case http.MethodPut:
-					roomHandler.UpdateRoom(w, r, id)
-
+					var updatedRoom models.Room
+					if err := json.NewDecoder(r.Body).Decode(&updatedRoom); err != nil {
+						http.Error(w, "无效的请求数据", http.StatusBadRequest)
+						return
+					}
+					if err := roomHandler.UpdateRoom(id, &updatedRoom); err != nil {
+						http.Error(w, "更新房间失败", http.StatusInternalServerError)
+						return
+					}
+					json.NewEncoder(w).Encode(updatedRoom)
 				case http.MethodDelete:
-					roomHandler.DeleteRoom(w, r, id)
+					if err := roomHandler.DeleteRoom(id); err != nil {
+						http.Error(w, "删除房间失败", http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 

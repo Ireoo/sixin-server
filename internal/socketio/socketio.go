@@ -186,26 +186,25 @@ func handleMessage(client *socket.Socket, args ...any) {
 
 	fmt.Println("收到消息：", string(msgBytes))
 
-	if err := messageHandler.HandleMessage(msgBytes); err != nil {
-		client.Emit("error", err.Error())
+	// 解析消息
+	var message models.Message
+	if err := json.Unmarshal(msgBytes, &message); err != nil {
+		client.Emit("error", "解析消息失败")
 		return
 	}
 
-	// 解析消息ID
-	var msgData struct {
-		Message struct {
-			MsgID string `json:"msgId"`
-		} `json:"message"`
-	}
-	if err := json.Unmarshal(msgBytes, &msgData); err != nil {
-		client.Emit("error", "解析消息ID失败")
+	// 保存消息到数据库
+	if err := db.Create(&message).Error; err != nil {
+		client.Emit("error", "保存消息失败")
 		return
 	}
 
-	// 使用消息ID获取完整的消息对象
-	message, err := messageHandler.GetMessageByID(msgData.Message.MsgID)
-	if err != nil {
-		client.Emit("error", err.Error())
+	// 创建并加载 FullMessage
+	var fullMessage models.FullMessage
+	if err := db.Model(&models.Message{}).Where("id = ?", message.ID).
+		Preload("Talker").Preload("Listener").Preload("Room").
+		First(&fullMessage.Message).Error; err != nil {
+		client.Emit("error", "加载完整消息数据失败")
 		return
 	}
 
@@ -216,19 +215,7 @@ func handleMessage(client *socket.Socket, args ...any) {
 		recipientID = message.RoomID
 	}
 
-	sendData := struct {
-		Talker   *models.User    `json:"talker"`
-		Listener *models.User    `json:"listener,omitempty"`
-		Room     *models.Room    `json:"room,omitempty"`
-		Message  *models.Message `json:"message"`
-	}{
-		Talker:   message.Talker,
-		Listener: message.Listener,
-		Room:     message.Room,
-		Message:  message,
-	}
-
-	SendMessageToUsers(sendData, message.TalkerID, recipientID)
+	SendMessageToUsers(fullMessage, message.TalkerID, recipientID)
 }
 
 // handleOffer 处理 "offer" 信令

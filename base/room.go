@@ -1,8 +1,6 @@
 package base
 
 import (
-	"net/http"
-
 	"github.com/Ireoo/sixin-server/models"
 )
 
@@ -14,52 +12,40 @@ func NewRoomHandler(base *Base) *RoomHandler {
 	return &RoomHandler{Base: base}
 }
 
-func (rh *RoomHandler) GetRooms(w http.ResponseWriter, r *http.Request) {
+func (rh *RoomHandler) GetRooms() ([]models.Room, error) {
 	var rooms []models.Room
 	if err := rh.Base.DB.Preload("Owner").Preload("Members").Find(&rooms).Error; err != nil {
-		http.Error(w, "获取房间列表失败", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
-	// 返回房间列表
+	return rooms, nil
 }
 
-func (rh *RoomHandler) CreateRoom(w http.ResponseWriter, r *http.Request) {
-	var room models.Room
-	// 解析请求体并创建房间
-	if err := rh.Base.DB.Create(&room).Error; err != nil {
-		http.Error(w, "创建房间失败", http.StatusInternalServerError)
-		return
-	}
-	// 返回创建的房间
+func (rh *RoomHandler) CreateRoom(room *models.Room) error {
+	return rh.Base.DB.Create(room).Error
 }
 
-func (rh *RoomHandler) GetRoom(w http.ResponseWriter, r *http.Request, id string) {
+func (rh *RoomHandler) GetRoom(id string) (*models.Room, error) {
 	var room models.Room
 	if err := rh.Base.DB.Preload("Owner").Preload("Members").First(&room, id).Error; err != nil {
-		http.Error(w, "获取房间失败", http.StatusNotFound)
-		return
+		return nil, err
 	}
-	// 返回房间信息
+	return &room, nil
 }
 
-func (rh *RoomHandler) UpdateRoom(w http.ResponseWriter, r *http.Request, id string) {
+func (rh *RoomHandler) UpdateRoom(id string, updatedRoom *models.Room) error {
 	var room models.Room
 	if err := rh.Base.DB.First(&room, id).Error; err != nil {
-		http.Error(w, "房间不存在", http.StatusNotFound)
-		return
+		return err
 	}
-	// 更新房间信息
-	// 返回更新后的房间信息
+	return rh.Base.DB.Model(&room).Updates(updatedRoom).Error
 }
 
-func (rh *RoomHandler) DeleteRoom(w http.ResponseWriter, r *http.Request, id string) {
-	if err := rh.Base.DB.Delete(&models.Room{}, id).Error; err != nil {
-		http.Error(w, "删除房间失败", http.StatusInternalServerError)
-		return
-	}
-	// 返回删除成功的消息
+func (rh *RoomHandler) DeleteRoom(id string) error {
+	return rh.Base.DB.Delete(&models.Room{}, id).Error
 }
 
-func (rh *RoomHandler) GetRoomByUsers(w http.ResponseWriter, r *http.Request) {
+func (rh *RoomHandler) GetRoomByUsers(userIDs []uint) (*models.Room, error) {
 	// 实现获取用户房间的逻辑
+	// 这里需要根据您的具体需求来实现
+	return nil, nil
 }

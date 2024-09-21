@@ -1,6 +1,8 @@
 package models
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 )
 
@@ -31,7 +33,9 @@ type User struct {
 	// 定义与 Room 的多对多关系
 	Rooms []*Room `gorm:"many2many:user_rooms;"`
 	// 定义与 Message 的一对多关系
-	Messages []Message `gorm:"foreignKey:TalkerID"`
+	Messages  []Message `gorm:"foreignKey:TalkerID"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Room struct {
@@ -46,29 +50,40 @@ type Room struct {
 	// 定义管理员与用户的多对多关系
 	Admins []*User `gorm:"many2many:room_admins;"`
 	// 定义与 Message 的一对多关系
-	Messages []Message `gorm:"foreignKey:RoomID"`
+	Messages  []Message `gorm:"foreignKey:RoomID"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type RoomByUser struct {
 	gorm.Model
-	UserID uint `gorm:"not null"`
-	RoomID uint `gorm:"not null"`
-	Alias  string
-	User   *User `gorm:"foreignKey:UserID"`
-	Room   *Room `gorm:"foreignKey:RoomID"`
+	UserID    uint `gorm:"not null"`
+	RoomID    uint `gorm:"not null"`
+	Alias     string
+	User      *User     `gorm:"foreignKey:UserID"`
+	Room      *Room     `gorm:"foreignKey:RoomID"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type Message struct {
 	gorm.Model
-	MsgID         string                 `gorm:"uniqueIndex;not null"`
-	TalkerID      uint                   `gorm:"not null"` // 发送者 ID
-	Talker        *User                  `gorm:"foreignKey:TalkerID"`
-	ListenerID    uint                   // 接收者 ID
-	Listener      *User                  `gorm:"foreignKey:ListenerID"`
-	Text          map[string]interface{} `gorm:"type:json"`
-	Timestamp     int64                  // 时间戳
-	Type          int
-	RoomID        uint   // 如果消息在群里
-	Room          *Room  `gorm:"foreignKey:RoomID"`
-	MentionIDList []uint `gorm:"type:json"`
+	ID            uint                   `gorm:"primaryKey" json:"id"`
+	MsgID         string                 `gorm:"uniqueIndex" json:"msgId"`
+	TalkerID      uint                   `json:"talkerId"`
+	ListenerID    uint                   `json:"listenerId"`
+	RoomID        uint                   `json:"roomId"`
+	Text          map[string]interface{} `gorm:"type:json" json:"text"`
+	Timestamp     int64                  `json:"timestamp"`
+	Type          int                    `json:"type"`
+	MentionIDList []uint                 `gorm:"type:json" json:"mentionIdList"`
+	CreatedAt     time.Time              `json:"createdAt"`
+	UpdatedAt     time.Time              `json:"updatedAt"`
+}
+
+type FullMessage struct {
+	Message
+	Talker   *User `json:"talker,omitempty"`
+	Listener *User `json:"listener,omitempty"`
+	Room     *Room `json:"room,omitempty"`
 }

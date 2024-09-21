@@ -17,63 +17,33 @@ func NewMessageHandler(base *Base) *MessageHandler {
 	return &MessageHandler{Base: base}
 }
 
-func (mh *MessageHandler) HandleMessage(messageData []byte) error {
+func (mh *MessageHandler) HandleMessage(messageData []byte) (*models.Message, error) {
 	var data struct {
-		Message struct {
-			MsgID         string                 `json:"msgId"`
-			TalkerID      uint                   `json:"talkerId"`
-			ListenerID    uint                   `json:"listenerId"`
-			RoomID        uint                   `json:"roomId"`
-			Text          map[string]interface{} `json:"text"`
-			Timestamp     int64                  `json:"timestamp"`
-			Type          int                    `json:"type"`
-			MentionIDList []uint                 `json:"mentionIdList"`
-		} `json:"message"`
+		Message models.Message `json:"message"`
 	}
 
 	if err := json.Unmarshal(messageData, &data); err != nil {
-		return fmt.Errorf("消息格式错误: %v", err)
+		return nil, fmt.Errorf("消息格式错误: %v", err)
 	}
 
-	// 检查并转换 MentionIDList 字段
-	if mentionIDList, ok := data.Message.Text["mentionIdList"].([]interface{}); ok {
-		var ids []uint
-		for _, id := range mentionIDList {
-			if idFloat, ok := id.(float64); ok {
-				ids = append(ids, uint(idFloat))
-			}
-		}
-		data.Message.MentionIDList = ids
-	} else {
-		data.Message.MentionIDList = []uint{}
+	message := &data.Message
+
+	// 如果 MsgID 为空，生成一个新的 UUID
+	if message.MsgID == "" {
+		message.MsgID = uuid.New().String()
 	}
 
-	if data.Message.MsgID == "" {
-		data.Message.MsgID = uuid.New().String()
-	}
-
-	message := models.Message{
-		MsgID:         data.Message.MsgID,
-		TalkerID:      data.Message.TalkerID,
-		ListenerID:    data.Message.ListenerID,
-		Text:          data.Message.Text,
-		Timestamp:     data.Message.Timestamp,
-		Type:          data.Message.Type,
-		MentionIDList: data.Message.MentionIDList,
-		RoomID:        data.Message.RoomID,
-	}
-
-	if err := mh.RecordMessage(&message); err != nil {
-		return fmt.Errorf("保存消息错误: %v", err)
+	if err := mh.RecordMessage(message); err != nil {
+		return nil, fmt.Errorf("保存消息错误: %v", err)
 	}
 
 	// 加载关联的用户和房间信息
 	if err := mh.Base.DB.Preload("Talker").Preload("Listener").Preload("Room").
-		First(&message, "msg_id = ?", message.MsgID).Error; err != nil {
-		return fmt.Errorf("加载消息关联信息错误: %v", err)
+		First(message, "msg_id = ?", message.MsgID).Error; err != nil {
+		return nil, fmt.Errorf("加载消息关联信息错误: %v", err)
 	}
 
-	return nil
+	return message, nil
 }
 
 func (mh *MessageHandler) RecordMessage(message *models.Message) error {
@@ -113,9 +83,11 @@ func (mh *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := mh.HandleMessage(messageData); err != nil {
+	message, err := mh.HandleMessage(messageData)
+	if err != nil {
 		http.Error(w, "处理消息失败: "+err.Error(), http.StatusInternalServerError)
 		return
+
 	}
 
 	var msgData struct {
@@ -128,7 +100,7 @@ func (mh *MessageHandler) CreateMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	message, err := mh.GetMessageByID(msgData.Message.MsgID)
+	message, err = mh.GetMessageByID(msgData.Message.MsgID)
 	if err != nil {
 		http.Error(w, "获取消息失败: "+err.Error(), http.StatusInternalServerError)
 		return
