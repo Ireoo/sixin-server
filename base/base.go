@@ -11,60 +11,29 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/Ireoo/sixin-server/websocket"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
 
 type Base struct {
-	Folder        string
-	Self          map[string]interface{}
-	Qrcode        string
-	TargetName    []string
-	ChatlogsName  []string
-	EmailNote     bool
-	ZhuanfaGroup  []string
-	WsGroup       map[string][]*websocket.Conn
-	Messages      map[string][]string
-	Sendme        bool
-	Interval      *time.Ticker
-	ReceiveDevice bool
-	Config        map[string]interface{}
-	DB            *gorm.DB
-	mu            sync.Mutex
-	wsConnMu      sync.RWMutex
-	IO            *socket.Server
-}
-
-func NewMessageHandler(db *gorm.DB) *Base {
-	mh := &Base{
-		Folder:       "./data",
-		Self:         make(map[string]interface{}),
-		TargetName:   []string{"香蕉内个布呐呐", "强制分享 cium"},
-		ChatlogsName: []string{"香蕉内个布呐呐", "王超", "L."},
-		EmailNote:    false,
-		ZhuanfaGroup: []string{},
-		WsGroup: map[string][]*websocket.Conn{
-			"m5stack":  {},
-			"telegram": {},
-			"web":      {},
-		},
-		Messages: map[string][]string{
-			"m5stack":  {},
-			"telegram": {},
-		},
-		Sendme:        true,
-		ReceiveDevice: true,
-		Config:        make(map[string]interface{}),
-		DB:            db,
-	}
-
-	mh.loadConfig()
-	mh.createSubfolders()
-	mh.initMessages()
-
-	return mh
+	Folder           string
+	Self             map[string]interface{}
+	Qrcode           string
+	TargetName       []string
+	ChatlogsName     []string
+	EmailNote        bool
+	ZhuanfaGroup     []string
+	Messages         map[string][]string
+	Sendme           bool
+	Interval         *time.Ticker
+	ReceiveDevice    bool
+	Config           map[string]interface{}
+	DB               *gorm.DB
+	mu               sync.Mutex
+	IO               *socket.Server
+	WebSocketManager *websocket.WebSocketManager
 }
 
 func NewBase() *Base {
@@ -75,19 +44,15 @@ func NewBase() *Base {
 		ChatlogsName: []string{"香蕉内个布呐呐", "王超", "L."},
 		EmailNote:    false,
 		ZhuanfaGroup: []string{},
-		WsGroup: map[string][]*websocket.Conn{
-			"m5stack":  {},
-			"telegram": {},
-			"web":      {},
-		},
 		Messages: map[string][]string{
 			"m5stack":  {},
 			"telegram": {},
 		},
-		Sendme:        true,
-		ReceiveDevice: true,
-		Config:        make(map[string]interface{}),
-		IO:            nil, // 初始化为 nil,稍后在 SetIO 方法中设置
+		Sendme:           true,
+		ReceiveDevice:    true,
+		Config:           make(map[string]interface{}),
+		IO:               nil, // 初始化为 nil,稍后在 SetIO 方法中设置
+		WebSocketManager: nil,
 	}
 
 	b.loadConfig()
@@ -178,22 +143,11 @@ func (mh *Base) SendMessage(text, msg string) {
 	mh.mu.Lock()
 	defer mh.mu.Unlock()
 
-	for _, ws := range mh.WsGroup["m5stack"] {
-		if err := ws.WriteMessage(websocket.TextMessage, []byte(text)); err == nil {
-			fmt.Printf("[m5stack] Sent message: %s\n", text)
-		}
-	}
-
-	for _, ws := range mh.WsGroup["telegram"] {
-		if err := ws.WriteMessage(websocket.TextMessage, []byte(msg)); err == nil {
-			fmt.Printf("[telegram] Sent message: %s\n", msg)
-		}
-	}
-
 	if text == "wechat:receive" || text == "wechat:message" {
 		return
 	}
 
+	// 添加消息到历史记录
 	mh.Messages["m5stack"] = append(mh.Messages["m5stack"], text)
 	mh.Messages["telegram"] = append(mh.Messages["telegram"], msg)
 
@@ -202,10 +156,22 @@ func (mh *Base) SendMessage(text, msg string) {
 		mh.Messages["telegram"] = mh.Messages["telegram"][1:]
 	}
 
+	// 发送消息给 Socket.IO 客户端
+	if mh.IO != nil {
+		mh.IO.Emit("message", map[string]string{"text": text, "msg": msg})
+	}
+
+	// 发送消息给 WebSocket 客户端
+	if mh.WebSocketManager != nil {
+		mh.WebSocketManager.SendMessage("m5stack", []byte(text))
+		mh.WebSocketManager.SendMessage("telegram", []byte(msg))
+	}
+
 	if mh.EmailNote {
 		mh.SendEmail()
 	}
 
+	// 保存消息到文件
 	data, err := json.MarshalIndent(mh.Messages, "", "    ")
 	if err != nil {
 		fmt.Printf("Error marshaling messages: %v\n", err)
@@ -259,37 +225,10 @@ func (b *Base) SetDB(db *gorm.DB) {
 	b.DB = db
 }
 
-func (b *Base) AddWebSocketConn(connType string, conn *websocket.Conn) {
-	b.wsConnMu.Lock()
-	defer b.wsConnMu.Unlock()
-	b.WsGroup[connType] = append(b.WsGroup[connType], conn)
-}
-
-func (b *Base) RemoveWebSocketConn(connType string, conn *websocket.Conn) {
-	b.wsConnMu.Lock()
-	defer b.wsConnMu.Unlock()
-	for i, c := range b.WsGroup[connType] {
-		if c == conn {
-			b.WsGroup[connType] = append(b.WsGroup[connType][:i], b.WsGroup[connType][i+1:]...)
-			break
-		}
-	}
-}
-
-func (b *Base) HandleWebSocketMessage(connType string, messageType int, message []byte) {
-	// 根据连接类型和消息类型处理消息
-	switch connType {
-	case "m5stack":
-		// 处理 m5stack 消息
-	case "telegram":
-		// 处理 telegram 消息
-	case "web":
-		// 处理 web 消息
-	}
-	// 可以根据需要调用 SendMessage 方法
-	b.SendMessage(string(message), string(message))
-}
-
 func (b *Base) SetIO(io *socket.Server) {
 	b.IO = io
+}
+
+func (b *Base) SetWebSocketManager(wsm *websocket.WebSocketManager) {
+	b.WebSocketManager = wsm
 }

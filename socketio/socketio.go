@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/message"
 	"github.com/Ireoo/sixin-server/models"
-	"github.com/google/uuid"
 	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gorm.io/gorm"
@@ -21,6 +21,7 @@ var (
 	// 用于存储客户端的 PeerConnection
 	peerConnections = make(map[string]*webrtc.PeerConnection)
 	pcMutex         sync.RWMutex
+	messageHandler  *message.MessageHandler
 )
 
 // SetupSocketHandlers 初始化 Socket.IO 服务器并设置事件处理器
@@ -29,6 +30,8 @@ func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server 
 	baseInstance = baseInst
 
 	io = socket.NewServer(nil, nil)
+
+	messageHandler = message.NewMessageHandler(database, io)
 
 	io.On("connection", handleConnection)
 
@@ -128,9 +131,8 @@ func handleRevokeMsg(client *socket.Socket, args ...any) {
 
 // handleGetChats 处理 "getChats" 事件
 func handleGetChats(client *socket.Socket, args ...any) {
-	var messages []models.Message
-	if err := db.Preload("Talker").Preload("Listener").Preload("Room").
-		Order("timestamp DESC").Limit(400).Find(&messages).Error; err != nil {
+	messages, err := messageHandler.GetChats()
+	if err != nil {
 		client.Emit("error", err.Error())
 		return
 	}
@@ -171,19 +173,6 @@ func handleMessage(client *socket.Socket, args ...any) {
 		return
 	}
 
-	var data struct {
-		Message struct {
-			MsgID         string                 `json:"msgId"`
-			TalkerID      uint                   `json:"talkerId"`
-			ListenerID    uint                   `json:"listenerId"`
-			RoomID        uint                   `json:"roomId"`
-			Text          map[string]interface{} `json:"text"`
-			Timestamp     int64                  `json:"timestamp"`
-			Type          int                    `json:"type"`
-			MentionIDList []uint                 `json:"mentionIdList"`
-		} `json:"message"`
-	}
-
 	var msgBytes []byte
 
 	switch arg := args[0].(type) {
@@ -198,48 +187,26 @@ func handleMessage(client *socket.Socket, args ...any) {
 
 	fmt.Println("收到消息：", string(msgBytes))
 
-	if err := json.Unmarshal(msgBytes, &data); err != nil {
-		client.Emit("error", "消息格式错误: "+err.Error())
+	if err := messageHandler.HandleMessage(msgBytes); err != nil {
+		client.Emit("error", err.Error())
 		return
 	}
 
-	// 检查并转换 MentionIDList 字段
-	if mentionIDList, ok := data.Message.Text["mentionIdList"].([]interface{}); ok {
-		var ids []uint
-		for _, id := range mentionIDList {
-			if idFloat, ok := id.(float64); ok {
-				ids = append(ids, uint(idFloat))
-			}
-		}
-		data.Message.MentionIDList = ids
-	} else {
-		data.Message.MentionIDList = []uint{}
+	// 解析消息ID
+	var msgData struct {
+		Message struct {
+			MsgID string `json:"msgId"`
+		} `json:"message"`
 	}
-
-	if data.Message.MsgID == "" {
-		data.Message.MsgID = uuid.New().String()
-	}
-
-	message := models.Message{
-		MsgID:         data.Message.MsgID,
-		TalkerID:      data.Message.TalkerID,
-		ListenerID:    data.Message.ListenerID,
-		Text:          data.Message.Text,
-		Timestamp:     data.Message.Timestamp,
-		Type:          data.Message.Type,
-		MentionIDList: data.Message.MentionIDList,
-		RoomID:        data.Message.RoomID,
-	}
-
-	if err := RecordMessage(&message); err != nil {
-		client.Emit("error", "保存消息错误: "+err.Error())
+	if err := json.Unmarshal(msgBytes, &msgData); err != nil {
+		client.Emit("error", "解析消息ID失败")
 		return
 	}
 
-	// 加载关联的用户和房间信息
-	if err := db.Preload("Talker").Preload("Listener").Preload("Room").
-		First(&message, "msg_id = ?", message.MsgID).Error; err != nil {
-		client.Emit("error", "加载消息关联信息错误: "+err.Error())
+	// 使用消息ID获取完整的消息对象
+	message, err := messageHandler.GetMessageByID(msgData.Message.MsgID)
+	if err != nil {
+		client.Emit("error", err.Error())
 		return
 	}
 
@@ -259,7 +226,7 @@ func handleMessage(client *socket.Socket, args ...any) {
 		Talker:   message.Talker,
 		Listener: message.Listener,
 		Room:     message.Room,
-		Message:  &message,
+		Message:  message,
 	}
 
 	SendMessageToUsers(sendData, message.TalkerID, recipientID)
@@ -418,11 +385,6 @@ func SendMessageToUsers(message interface{}, userIDs ...uint) {
 			return true
 		})
 	}
-}
-
-// recordMessage 保存消息到数据库
-func RecordMessage(message *models.Message) error {
-	return db.Create(message).Error
 }
 
 // GetSocketIOServer 获取 Socket.IO 服务器实例
