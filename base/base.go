@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
 	"gorm.io/gorm"
 )
@@ -32,6 +33,8 @@ type Base struct {
 	Config        map[string]interface{}
 	DB            *gorm.DB
 	mu            sync.Mutex
+	wsConnMu      sync.RWMutex
+	IO            *socket.Server
 }
 
 func NewMessageHandler(db *gorm.DB) *Base {
@@ -62,6 +65,36 @@ func NewMessageHandler(db *gorm.DB) *Base {
 	mh.initMessages()
 
 	return mh
+}
+
+func NewBase() *Base {
+	b := &Base{
+		Folder:       "./data",
+		Self:         make(map[string]interface{}),
+		TargetName:   []string{"香蕉内个布呐呐", "强制分享 cium"},
+		ChatlogsName: []string{"香蕉内个布呐呐", "王超", "L."},
+		EmailNote:    false,
+		ZhuanfaGroup: []string{},
+		WsGroup: map[string][]*websocket.Conn{
+			"m5stack":  {},
+			"telegram": {},
+			"web":      {},
+		},
+		Messages: map[string][]string{
+			"m5stack":  {},
+			"telegram": {},
+		},
+		Sendme:        true,
+		ReceiveDevice: true,
+		Config:        make(map[string]interface{}),
+		IO:            nil, // 初始化为 nil,稍后在 SetIO 方法中设置
+	}
+
+	b.loadConfig()
+	b.createSubfolders()
+	b.initMessages()
+
+	return b
 }
 
 func (mh *Base) loadConfig() {
@@ -220,4 +253,43 @@ func (mh *Base) set(key string, value interface{}) {
 	}
 	mh.Config[key] = value
 	mh.saveConfig()
+}
+
+func (b *Base) SetDB(db *gorm.DB) {
+	b.DB = db
+}
+
+func (b *Base) AddWebSocketConn(connType string, conn *websocket.Conn) {
+	b.wsConnMu.Lock()
+	defer b.wsConnMu.Unlock()
+	b.WsGroup[connType] = append(b.WsGroup[connType], conn)
+}
+
+func (b *Base) RemoveWebSocketConn(connType string, conn *websocket.Conn) {
+	b.wsConnMu.Lock()
+	defer b.wsConnMu.Unlock()
+	for i, c := range b.WsGroup[connType] {
+		if c == conn {
+			b.WsGroup[connType] = append(b.WsGroup[connType][:i], b.WsGroup[connType][i+1:]...)
+			break
+		}
+	}
+}
+
+func (b *Base) HandleWebSocketMessage(connType string, messageType int, message []byte) {
+	// 根据连接类型和消息类型处理消息
+	switch connType {
+	case "m5stack":
+		// 处理 m5stack 消息
+	case "telegram":
+		// 处理 telegram 消息
+	case "web":
+		// 处理 web 消息
+	}
+	// 可以根据需要调用 SendMessage 方法
+	b.SendMessage(string(message), string(message))
+}
+
+func (b *Base) SetIO(io *socket.Server) {
+	b.IO = io
 }
