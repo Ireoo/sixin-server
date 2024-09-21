@@ -11,35 +11,50 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Ireoo/sixin-server/internal/websocket"
+	"github.com/Ireoo/sixin-server/config"
+	"github.com/Ireoo/sixin-server/database"
+	"github.com/Ireoo/sixin-server/logger"
+	"github.com/gorilla/websocket"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
-	"gorm.io/gorm"
 )
 
 type Base struct {
-	Folder           string
-	Self             map[string]interface{}
-	Qrcode           string
-	TargetName       []string
-	ChatlogsName     []string
-	EmailNote        bool
-	ZhuanfaGroup     []string
-	Messages         map[string][]string
-	Sendme           bool
-	Interval         *time.Ticker
-	ReceiveDevice    bool
-	Config           map[string]interface{}
-	DB               *gorm.DB
-	mu               sync.Mutex
-	IO               *socket.Server
-	WebSocketManager *websocket.WebSocketManager
+	Folder        string
+	Self          map[string]interface{}
+	Qrcode        string
+	TargetName    []string
+	ChatlogsName  []string
+	EmailNote     bool
+	ZhuanfaGroup  []string
+	Messages      map[string][]string
+	Sendme        bool
+	Interval      *time.Ticker
+	ReceiveDevice bool
+	Config        map[string]interface{}
+	mu            sync.Mutex
+	IoManager     *socket.Server
+	WsManager     []*websocket.Conn
+	DbManager     *database.DatabaseManager
 }
 
-func NewBase() *Base {
+func NewBase(cfg *config.Config) *Base {
 	b := &Base{}
+
+	// 创建 DatabaseManager 实例
+	dbManager, err := database.NewDatabaseManager(database.DatabaseType(cfg.DBType), cfg.DBConn)
+	if err != nil {
+		logger.Error("创建数据库管理器失败:", err)
+		return nil
+	}
+
+	// 将数据库实例和管理器保存到 base 中
+	b.DbManager = dbManager
+
 	b.loadConfig()
+
 	b.createSubfolders()
+
 	b.initMessages()
 	return b
 }
@@ -139,16 +154,11 @@ func (mh *Base) SendMessage(text, msg string) {
 	}
 
 	// 发送消息给 Socket.IO 客户端
-	if mh.IO != nil {
-		mh.IO.Emit("message", map[string]string{"text": text, "msg": msg})
+	if mh.IoManager != nil {
+		mh.IoManager.Emit("message", map[string]string{"text": text, "msg": msg})
 	}
 
 	// 发送消息给 WebSocket 客户端
-	if mh.WebSocketManager != nil {
-		mh.WebSocketManager.SendMessage("m5stack", []byte(text))
-		mh.WebSocketManager.SendMessage("telegram", []byte(msg))
-	}
-
 	if mh.EmailNote {
 		mh.SendEmail()
 	}
@@ -203,33 +213,38 @@ func (mh *Base) set(key string, value interface{}) {
 	mh.saveConfig()
 }
 
-func (b *Base) SetDB(db *gorm.DB) {
-	b.DB = db
-}
-
 func (b *Base) SetIO(io *socket.Server) {
-	b.IO = io
+	b.IoManager = io
 }
 
-func (b *Base) SetWebSocketManager(wsm *websocket.WebSocketManager) {
-	b.WebSocketManager = wsm
+func (b *Base) AddWs(ws *websocket.Conn) {
+	b.WsManager = append(b.WsManager, ws)
 }
 
-func (b *Base) GetWebSocketManager() *websocket.WebSocketManager {
-	return b.WebSocketManager
+func (b *Base) RemoveWs(ws *websocket.Conn) {
+	for i, v := range b.WsManager {
+		if v == ws {
+			b.WsManager = append(b.WsManager[:i], b.WsManager[i+1:]...)
+
+			break
+		}
+	}
 }
 
-func (b *Base) GetIO() *socket.Server {
+func (b *Base) SetDatabaseManager(dbManager *database.DatabaseManager) {
 
-	// 返回 Socket.IO 服务器实例
-	return b.IO
+	b.DbManager = dbManager
+}
+
+func (b *Base) GetWs() []*websocket.Conn {
+	return b.WsManager
 }
 
 // 添加 sendMessageToUsers 方法
 func (b *Base) SendMessageToUsers(message interface{}, userIDs ...uint) {
 	for _, userID := range userIDs {
 		socketID := socket.SocketId(fmt.Sprintf("%d", userID))
-		clients := b.IO.Sockets().Sockets()
+		clients := b.IoManager.Sockets().Sockets()
 		clients.Range(func(id socket.SocketId, client *socket.Socket) bool {
 			if client.Id() == socketID {
 				err := client.Emit("message", message)

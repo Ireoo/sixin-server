@@ -1,10 +1,14 @@
 package websocket
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 
+	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/models"
 	"github.com/gorilla/websocket"
 )
 
@@ -15,14 +19,15 @@ var upgrader = websocket.Upgrader{
 }
 
 type WebSocketManager struct {
-	connections map[string][]*websocket.Conn
-	mu          sync.RWMutex
-	sendMessage func(text, msg string)
+	connections  map[string][]*websocket.Conn
+	mu           sync.RWMutex
+	baseInstance *base.Base
 }
 
-func NewWebSocketManager() *WebSocketManager {
+func NewWebSocketManager(base *base.Base) *WebSocketManager {
 	return &WebSocketManager{
-		connections: make(map[string][]*websocket.Conn),
+		connections:  make(map[string][]*websocket.Conn),
+		baseInstance: base,
 	}
 }
 
@@ -47,7 +52,7 @@ func (wsm *WebSocketManager) HandleWebSocket(w http.ResponseWriter, r *http.Requ
 			log.Printf("WebSocket read error: %v", err)
 			break
 		}
-		wsm.handleMessage(connType, message)
+		wsm.handleMessage(message)
 	}
 }
 
@@ -69,12 +74,55 @@ func (wsm *WebSocketManager) removeConnection(connType string, conn *websocket.C
 	}
 }
 
-func (wsm *WebSocketManager) handleMessage(connType string, message []byte) {
-	// 处理从 WebSocket 接收到的消息
-	log.Printf("Received WebSocket message from %s: %s", connType, string(message))
+func (wsm *WebSocketManager) handleMessage(msgBytes []byte) {
+	var message models.Message
+	if err := json.Unmarshal(msgBytes, &message); err != nil {
+		log.Printf("解析消息失败: %v", err)
+		return
+	}
 
-	// 调用 sendMessage 函数处理消息
-	wsm.sendMessage(string(message), string(message))
+	if err := wsm.baseInstance.DbManager.CreateMessage(&message); err != nil {
+		log.Printf("保存消息失败: %v", err)
+		return
+	}
+
+	fullMessage, err := wsm.baseInstance.DbManager.GetFullMessage(message.ID)
+	if err != nil {
+		log.Printf("加载完整消息数据失败: %v", err)
+		return
+	}
+
+	var recipientID uint
+	if message.ListenerID != 0 {
+		recipientID = message.ListenerID
+	} else {
+		recipientID = message.RoomID
+	}
+
+	wsm.sendMessageToUsers(fullMessage, message.TalkerID, recipientID)
+
+	// 如果还需要调用原有的 sendMessage 函数，可以保留这行
+	// wsm.sendMessage(string(msgBytes), string(msgBytes))
+}
+
+func (wsm *WebSocketManager) sendMessageToUsers(message interface{}, userIDs ...uint) {
+	messageJSON, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("序列化消息失败: %v", err)
+		return
+	}
+
+	wsm.mu.RLock()
+	defer wsm.mu.RUnlock()
+
+	for _, userID := range userIDs {
+		userConnType := fmt.Sprintf("user_%d", userID)
+		for _, conn := range wsm.connections[userConnType] {
+			if err := conn.WriteMessage(websocket.TextMessage, messageJSON); err != nil {
+				log.Printf("发送消息给用户 %d 失败: %v", userID, err)
+			}
+		}
+	}
 }
 
 func (wsm *WebSocketManager) SendMessage(connType string, message []byte) {

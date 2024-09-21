@@ -8,7 +8,6 @@ import (
 
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/config"
-	"github.com/Ireoo/sixin-server/database"
 	httpHandler "github.com/Ireoo/sixin-server/internal/http"
 	"github.com/Ireoo/sixin-server/internal/server"
 	"github.com/Ireoo/sixin-server/internal/socketio"
@@ -19,28 +18,20 @@ import (
 
 func SetupAndRun(cfg *config.Config) {
 	// 创建 base.Base 实例
-	baseInstance := base.NewBase()
+	baseInstance := base.NewBase(cfg)
 
-	// 获取数据库实例
-	err := database.InitDatabase(database.DatabaseType(cfg.DBType), cfg.DBConn)
-	if err != nil {
-		logger.Error("Failed to initialize database:", err)
+	if baseInstance == nil {
+		logger.Error("创建 base 实例失败")
 		return
 	}
-	db := database.GetCurrentDB()
 
-	// 将数据库实例保存到 base 中
-	baseInstance.SetDB(db.GetDB())
-
-	// 设置 Socket.IO 事件处理
-	io := socketio.SetupSocketHandlers(db.GetDB(), baseInstance)
-
-	// 将 Socket.IO 实例保存到 base 中
-	baseInstance.SetIO(io)
-
-	http.Handle("/socket.io/", io.ServeHandler(nil))
+	// 设置 Socket.IO 路由
+	ioManager := socketio.NewSocketIOManager(baseInstance)
+	baseInstance.IoManager = ioManager.Io
+	http.Handle("/socket.io/", baseInstance.IoManager.ServeHandler(nil))
 
 	// 设置 HTTP 处理程序
+
 	httpHandler.SetupHTTPHandlers(baseInstance)
 
 	// 设置 STUN 服务器
@@ -48,18 +39,13 @@ func SetupAndRun(cfg *config.Config) {
 		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort)
 		ctx := context.Background()
 		if err := stunServer.StartSTUNServer(ctx, stunAddress); err != nil {
-			logger.Error("Failed to start STUN server:", err)
+			logger.Error("启动 STUN 服务器失败:", err)
 		}
 	}()
 
-	// 创建 WebSocketManager
-	wsManager := websocket.NewWebSocketManager()
-
 	// 设置 WebSocket 路由
-	http.HandleFunc("/ws", wsManager.HandleWebSocket)
-
-	// 将 WebSocketManager 保存到 baseInstance
-	baseInstance.SetWebSocketManager(wsManager)
+	WebSocketManager := websocket.NewWebSocketManager(baseInstance)
+	http.HandleFunc("/ws", WebSocketManager.HandleWebSocket)
 
 	// 创建 http.Server 实例
 	serverInstance := &http.Server{

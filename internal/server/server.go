@@ -35,7 +35,8 @@ func StartServer(server *http.Server, baseInstance *base.Base) {
 	}()
 
 	<-exit
-	baseInstance.IO.Close(nil)
+	baseInstance.IoManager.Close(nil)
 	server.Shutdown(context.Background())
 	os.Exit(0)
+
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
@@ -11,72 +12,68 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
-	"gorm.io/gorm"
 )
 
-var (
-	db           *gorm.DB
-	baseInstance *base.Base
-	io           *socket.Server
-	// 用于存储客户端的 PeerConnection
-	peerConnections = make(map[string]*webrtc.PeerConnection)
+type SocketIOManager struct {
+	Io              *socket.Server
+	baseInstance    *base.Base
+	peerConnections map[string]*webrtc.PeerConnection
 	pcMutex         sync.RWMutex
-	messageHandler  *base.MessageHandler
-)
-
-// SetupSocketHandlers 初始化 Socket.IO 服务器并设置事件处理器
-func SetupSocketHandlers(database *gorm.DB, baseInst *base.Base) *socket.Server {
-	db = database
-	baseInstance = baseInst
-
-	io = socket.NewServer(nil, nil)
-
-	messageHandler = base.NewMessageHandler(baseInstance)
-	io.On("connection", handleConnection)
-
-	return io
 }
 
-// handleConnection 处理新的客户端连接
-func handleConnection(clients ...any) {
+func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
+	return &SocketIOManager{
+		Io:              socket.NewServer(nil, nil),
+		baseInstance:    baseInst,
+		peerConnections: make(map[string]*webrtc.PeerConnection),
+	}
+}
+
+func (sim *SocketIOManager) SetupSocketHandlers() *socket.Server {
+	sim.Io.On("connection", sim.handleConnection)
+	return sim.Io
+}
+
+func (sim *SocketIOManager) handleConnection(clients ...any) {
 	client := clients[0].(*socket.Socket)
 	fmt.Println("新连接：", client.Id())
 
-	// 发送初始状态
-	emitInitialState(client)
-
-	// 注册事件处理器
-	registerClientHandlers(client)
+	sim.emitInitialState(client)
+	sim.registerClientHandlers(client)
 
 	client.On("disconnecting", func(reason ...any) {
 		fmt.Println("连接断开:", client.Id(), reason)
-		cleanupPeerConnection(client.Id())
+		sim.cleanupPeerConnection(client.Id())
 	})
 }
 
-// emitInitialState 发送初始状态
-func emitInitialState(client *socket.Socket) {
-	client.Emit("receive", baseInstance.ReceiveDevice)
-	client.Emit("email", baseInstance.EmailNote)
-	client.Emit("self", baseInstance.Self)
-	client.Emit("qrcode", baseInstance.Qrcode)
+func (sim *SocketIOManager) emitInitialState(client *socket.Socket) {
+	client.Emit("receive", sim.baseInstance.ReceiveDevice)
+	client.Emit("email", sim.baseInstance.EmailNote)
+	client.Emit("self", sim.baseInstance.Self)
+	client.Emit("qrcode", sim.baseInstance.Qrcode)
 }
 
-// registerClientHandlers 注册各种事件的处理器
-func registerClientHandlers(client *socket.Socket) {
+func (sim *SocketIOManager) registerClientHandlers(client *socket.Socket) {
 	events := map[string]func(*socket.Socket, ...any){
-		"self":           handleSelf,
-		"receive":        handleReceive,
-		"message":        handleMessage,
-		"email":          handleEmail,
-		"revokemsg":      handleRevokeMsg,
-		"getChats":       handleGetChats,
-		"getRooms":       handleGetRooms,
-		"getUsers":       handleGetUsers,
-		"getRoomByUsers": handleGetRoomByUsers,
-		"offer":          handleOffer,
-		"answer":         handleAnswer,
-		"ice-candidate":  handleIceCandidate,
+		"self":           sim.handleSelf,
+		"receive":        sim.handleReceive,
+		"message":        sim.handleMessage,
+		"email":          sim.handleEmail,
+		"revokemsg":      sim.handleRevokeMsg,
+		"getChats":       sim.handleGetChats,
+		"getRooms":       sim.handleGetRooms,
+		"getUsers":       sim.handleGetUsers,
+		"getRoomByUsers": sim.handleGetRoomByUsers,
+		"offer":          sim.handleOffer,
+		"answer":         sim.handleAnswer,
+		"ice-candidate":  sim.handleIceCandidate,
+		"createUser":     sim.handleCreateUser,
+		"updateUser":     sim.handleUpdateUser,
+		"deleteUser":     sim.handleDeleteUser,
+		"createRoom":     sim.handleCreateRoom,
+		"updateRoom":     sim.handleUpdateRoom,
+		"deleteRoom":     sim.handleDeleteRoom,
 	}
 
 	for event, handler := range events {
@@ -86,87 +83,77 @@ func registerClientHandlers(client *socket.Socket) {
 	}
 }
 
-// cleanupPeerConnection 关闭并移除 PeerConnection
-func cleanupPeerConnection(clientID socket.SocketId) {
-	pcMutex.Lock()
-	defer pcMutex.Unlock()
+func (sim *SocketIOManager) cleanupPeerConnection(clientID socket.SocketId) {
+	sim.pcMutex.Lock()
+	defer sim.pcMutex.Unlock()
 
 	id := string(clientID)
-	if peerConnection, exists := peerConnections[id]; exists {
+	if peerConnection, exists := sim.peerConnections[id]; exists {
 		if err := peerConnection.Close(); err != nil {
 			log.Printf("关闭 PeerConnection 失败: %v", err)
 		}
-		delete(peerConnections, id)
+		delete(sim.peerConnections, id)
 	}
 }
 
-// handleSelf 处理 "self" 事件
-func handleSelf(client *socket.Socket, args ...any) {
-	client.Emit("self", baseInstance.Self)
+func (sim *SocketIOManager) handleSelf(client *socket.Socket, args ...any) {
+	client.Emit("self", sim.baseInstance.Self)
 }
 
-// handleReceive 处理 "receive" 事件
-func handleReceive(client *socket.Socket, args ...any) {
-	baseInstance.ReceiveDevice = !baseInstance.ReceiveDevice
+func (sim *SocketIOManager) handleReceive(client *socket.Socket, args ...any) {
+	sim.baseInstance.ReceiveDevice = !sim.baseInstance.ReceiveDevice
 	message := "wechat:receive"
-	if !baseInstance.ReceiveDevice {
+	if !sim.baseInstance.ReceiveDevice {
 		message = "wechat:message"
 	}
-	baseInstance.SendMessage(message, message)
-	client.Emit("receive", baseInstance.ReceiveDevice)
+	sim.baseInstance.SendMessage(message, message)
+	client.Emit("receive", sim.baseInstance.ReceiveDevice)
 }
 
-// handleEmail 处理 "email" 事件
-func handleEmail(client *socket.Socket, args ...any) {
-	baseInstance.EmailNote = !baseInstance.EmailNote
-	client.Emit("email", baseInstance.EmailNote)
+func (sim *SocketIOManager) handleEmail(client *socket.Socket, args ...any) {
+	sim.baseInstance.EmailNote = !sim.baseInstance.EmailNote
+	client.Emit("email", sim.baseInstance.EmailNote)
 }
 
-// handleRevokeMsg 处理 "revokemsg" 事件
-func handleRevokeMsg(client *socket.Socket, args ...any) {
+func (sim *SocketIOManager) handleRevokeMsg(client *socket.Socket, args ...any) {
 	// 实现撤回消息的逻辑
 	// TODO: 添加具体实现
 }
 
-// handleGetChats 处理 "getChats" 事件
-func handleGetChats(client *socket.Socket, args ...any) {
-	messages, err := messageHandler.GetChats()
+func (sim *SocketIOManager) handleGetChats(client *socket.Socket, args ...any) {
+	messages, err := sim.baseInstance.DbManager.GetChats()
 	if err != nil {
 		client.Emit("error", err.Error())
+
 		return
 	}
 	client.Emit("getChats", messages)
 }
 
-// handleGetRooms 处理 "getRooms" 事件
-func handleGetRooms(client *socket.Socket, args ...any) {
-	var rooms []models.Room
-	if err := db.Preload("Owner").Preload("Members").
-		Order("created_at DESC").Find(&rooms).Error; err != nil {
+func (sim *SocketIOManager) handleGetRooms(client *socket.Socket, args ...any) {
+	rooms, err := sim.baseInstance.DbManager.GetAllRooms()
+	if err != nil {
 		client.Emit("error", err.Error())
 		return
 	}
 	client.Emit("getRooms", rooms)
 }
 
-// handleGetUsers 处理 "getUsers" 事件
-func handleGetUsers(client *socket.Socket, args ...any) {
-	var users []models.User
-	if err := db.Preload("Rooms").Order("created_at DESC").Find(&users).Error; err != nil {
+func (sim *SocketIOManager) handleGetUsers(client *socket.Socket, args ...any) {
+	users, err := sim.baseInstance.DbManager.GetAllUsers()
+	if err != nil {
 		client.Emit("error", err.Error())
 		return
 	}
 	client.Emit("getUsers", users)
 }
 
-// handleGetRoomByUsers 处理 "getRoomByUsers" 事件
-func handleGetRoomByUsers(client *socket.Socket, args ...any) {
+func (sim *SocketIOManager) handleGetRoomByUsers(client *socket.Socket, args ...any) {
 	// 实现获取用户房间的逻辑
 	// TODO: 添加具体实现
 }
 
-// handleMessage 处理 "message" 事件
-func handleMessage(client *socket.Socket, args ...any) {
+func (sim *SocketIOManager) handleMessage(client *socket.Socket, args ...any) {
 	if len(args) == 0 {
 		client.Emit("error", "缺少消息内容")
 		return
@@ -186,24 +173,19 @@ func handleMessage(client *socket.Socket, args ...any) {
 
 	fmt.Println("收到消息：", string(msgBytes))
 
-	// 解析消息
 	var message models.Message
 	if err := json.Unmarshal(msgBytes, &message); err != nil {
 		client.Emit("error", "解析消息失败")
 		return
 	}
 
-	// 保存消息到数据库
-	if err := db.Create(&message).Error; err != nil {
+	if err := sim.baseInstance.DbManager.CreateMessage(&message); err != nil {
 		client.Emit("error", "保存消息失败")
 		return
 	}
 
-	// 创建并加载 FullMessage
-	var fullMessage models.FullMessage
-	if err := db.Model(&models.Message{}).Where("id = ?", message.ID).
-		Preload("Talker").Preload("Listener").Preload("Room").
-		First(&fullMessage.Message).Error; err != nil {
+	fullMessage, err := sim.baseInstance.DbManager.GetFullMessage(message.ID)
+	if err != nil {
 		client.Emit("error", "加载完整消息数据失败")
 		return
 	}
@@ -215,11 +197,10 @@ func handleMessage(client *socket.Socket, args ...any) {
 		recipientID = message.RoomID
 	}
 
-	SendMessageToUsers(fullMessage, message.TalkerID, recipientID)
+	sim.SendMessageToUsers(fullMessage, message.TalkerID, recipientID)
 }
 
-// handleOffer 处理 "offer" 信令
-func handleOffer(client *socket.Socket, sdp ...any) {
+func (sim *SocketIOManager) handleOffer(client *socket.Socket, sdp ...any) {
 	if len(sdp) == 0 {
 		client.Emit("error", "缺少 SDP 数据")
 		return
@@ -273,16 +254,14 @@ func handleOffer(client *socket.Socket, sdp ...any) {
 		return
 	}
 
-	// 保存 PeerConnection
-	pcMutex.Lock()
-	peerConnections[string(client.Id())] = peerConnection
-	pcMutex.Unlock()
+	sim.pcMutex.Lock()
+	sim.peerConnections[string(client.Id())] = peerConnection
+	sim.pcMutex.Unlock()
 
 	client.Emit("answer", string(answerJSON))
 }
 
-// handleAnswer 处理 "answer" 信令
-func handleAnswer(client *socket.Socket, sdp ...any) {
+func (sim *SocketIOManager) handleAnswer(client *socket.Socket, sdp ...any) {
 	if len(sdp) == 0 {
 		client.Emit("error", "缺少 SDP 数据")
 		return
@@ -303,9 +282,9 @@ func handleAnswer(client *socket.Socket, sdp ...any) {
 		return
 	}
 
-	pcMutex.RLock()
-	peerConnection, exists := peerConnections[string(client.Id())]
-	pcMutex.RUnlock()
+	sim.pcMutex.RLock()
+	peerConnection, exists := sim.peerConnections[string(client.Id())]
+	sim.pcMutex.RUnlock()
 	if !exists {
 		log.Printf("PeerConnection 未找到")
 		client.Emit("error", "PeerConnection 未找到")
@@ -319,8 +298,7 @@ func handleAnswer(client *socket.Socket, sdp ...any) {
 	}
 }
 
-// handleIceCandidate 处理 ICE 候选
-func handleIceCandidate(client *socket.Socket, candidate ...any) {
+func (sim *SocketIOManager) handleIceCandidate(client *socket.Socket, candidate ...any) {
 	if len(candidate) == 0 {
 		client.Emit("error", "缺少 ICE 候选数据")
 		return
@@ -340,9 +318,9 @@ func handleIceCandidate(client *socket.Socket, candidate ...any) {
 		return
 	}
 
-	pcMutex.RLock()
-	peerConnection, exists := peerConnections[string(client.Id())]
-	pcMutex.RUnlock()
+	sim.pcMutex.RLock()
+	peerConnection, exists := sim.peerConnections[string(client.Id())]
+	sim.pcMutex.RUnlock()
 	if !exists {
 		log.Printf("PeerConnection 未找到，无法添加 ICE 候选")
 		client.Emit("error", "PeerConnection 未找到")
@@ -355,11 +333,10 @@ func handleIceCandidate(client *socket.Socket, candidate ...any) {
 	}
 }
 
-// sendMessageToUsers 发送消息给多个用户
-func SendMessageToUsers(message interface{}, userIDs ...uint) {
+func (sim *SocketIOManager) SendMessageToUsers(message interface{}, userIDs ...uint) {
 	for _, userID := range userIDs {
 		socketID := socket.SocketId(fmt.Sprintf("%d", userID))
-		clients := io.Sockets().Sockets()
+		clients := sim.Io.Sockets().Sockets()
 		clients.Range(func(id socket.SocketId, client *socket.Socket) bool {
 			if client.Id() == socketID {
 				err := client.Emit("message", message)
@@ -373,7 +350,138 @@ func SendMessageToUsers(message interface{}, userIDs ...uint) {
 	}
 }
 
-// GetSocketIOServer 获取 Socket.IO 服务器实例
-func GetSocketIOServer() *socket.Server {
-	return io
+// func (sim *SocketIOManager) GetSocketIOServer() *socket.Server {
+// 	return sim.io
+// }
+
+func (sim *SocketIOManager) handleCreateUser(client *socket.Socket, args ...any) {
+	if len(args) == 0 {
+		client.Emit("error", "缺少用户数据")
+		return
+	}
+
+	var user models.User
+	if err := json.Unmarshal([]byte(args[0].(string)), &user); err != nil {
+		client.Emit("error", "无效的用户数据")
+		return
+	}
+
+	if err := sim.baseInstance.DbManager.CreateUser(&user); err != nil {
+		client.Emit("error", "创建用户失败")
+		return
+	}
+
+	client.Emit("userCreated", user)
+}
+
+func (sim *SocketIOManager) handleUpdateUser(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少用户ID或更新数据")
+		return
+	}
+
+	userID := args[0].(string)
+	var updatedUser models.User
+	if err := json.Unmarshal([]byte(args[1].(string)), &updatedUser); err != nil {
+		client.Emit("error", "无效的用户数据")
+		return
+	}
+
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
+	if err != nil {
+		client.Emit("error", "无效的用户ID")
+		return
+	}
+
+	if err := sim.baseInstance.DbManager.UpdateUser(uint(userIDUint), updatedUser); err != nil {
+		client.Emit("error", "更新用户失败")
+		return
+	}
+
+	client.Emit("userUpdated", updatedUser)
+}
+
+func (sim *SocketIOManager) handleDeleteUser(client *socket.Socket, args ...any) {
+	if len(args) == 0 {
+		client.Emit("error", "缺少用户ID")
+		return
+	}
+	userID, err := strconv.ParseUint(args[0].(string), 10, 64)
+	if err != nil {
+		client.Emit("error", "无效的用户ID")
+		return
+	}
+	if err := sim.baseInstance.DbManager.DeleteUser(uint(userID)); err != nil {
+		client.Emit("error", "删除用户失败")
+		return
+	}
+
+	client.Emit("userDeleted", userID)
+}
+
+func (sim *SocketIOManager) handleCreateRoom(client *socket.Socket, args ...any) {
+	if len(args) == 0 {
+		client.Emit("error", "缺少房间数据")
+		return
+	}
+
+	var room models.Room
+	if err := json.Unmarshal([]byte(args[0].(string)), &room); err != nil {
+		client.Emit("error", "无效的房间数据")
+		return
+	}
+
+	if err := sim.baseInstance.DbManager.CreateRoom(&room); err != nil {
+		client.Emit("error", "创建房间失败")
+		return
+	}
+
+	client.Emit("roomCreated", room)
+}
+
+func (sim *SocketIOManager) handleUpdateRoom(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少房间ID或更新数据")
+		return
+	}
+
+	roomID := args[0].(string)
+	var updatedRoom models.Room
+	if err := json.Unmarshal([]byte(args[1].(string)), &updatedRoom); err != nil {
+		client.Emit("error", "无效的房间数据")
+		return
+	}
+
+	roomIDUint, err := strconv.ParseUint(roomID, 10, 64)
+	if err != nil {
+		client.Emit("error", "无效的房间ID")
+		return
+	}
+
+	if err := sim.baseInstance.DbManager.UpdateRoom(uint(roomIDUint), updatedRoom); err != nil {
+		client.Emit("error", "更新房间失败")
+		return
+	}
+
+	client.Emit("roomUpdated", updatedRoom)
+}
+
+func (sim *SocketIOManager) handleDeleteRoom(client *socket.Socket, args ...any) {
+	if len(args) == 0 {
+		client.Emit("error", "缺少房间ID")
+		return
+	}
+
+	roomID := args[0].(string)
+	roomIDUint, err := strconv.ParseUint(roomID, 10, 64)
+	if err != nil {
+		client.Emit("error", "房间ID无效")
+		return
+	}
+	if err := sim.baseInstance.DbManager.DeleteRoom(uint(roomIDUint)); err != nil {
+		client.Emit("error", "删除房间失败")
+		return
+	}
+
+	client.Emit("roomDeleted", roomID)
 }

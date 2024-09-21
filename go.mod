@@ -3,8 +3,6 @@ module github.com/Ireoo/sixin-server
 go 1.22.5
 
 require (
-	github.com/google/uuid v1.6.0
-	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
 	github.com/pion/stun v0.6.1
@@ -34,6 +32,7 @@ require (
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/pprof v0.0.0-20230821062121-407c9e7a662f // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/hashicorp/go-version v1.6.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

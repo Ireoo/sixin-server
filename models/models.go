@@ -12,6 +12,8 @@ func GetAllModels() []interface{} {
 		&Room{},
 		&RoomByUser{},
 		&Message{},
+		&UserFriend{}, // 新增
+		&UserRoom{},   // 新增
 		// 在这里添加新模型
 	}
 }
@@ -43,9 +45,8 @@ type Room struct {
 	RoomID  string `gorm:"uniqueIndex;not null"`
 	Name    string
 	OwnerID uint
-	Owner   *User `gorm:"foreignKey:OwnerID"`
-	// 定义与 User 的多对多关系
-	Members []*User `gorm:"many2many:user_rooms;"`
+	Owner   User   `gorm:"foreignKey:OwnerID"`
+	Members []User `gorm:"many2many:room_members;"`
 	Avatar  string
 	// 定义管理员与用户的多对多关系
 	Admins []*User `gorm:"many2many:room_admins;"`
@@ -79,6 +80,30 @@ type Message struct {
 	MentionIDList []uint                 `gorm:"type:json" json:"mentionIdList"`
 	CreatedAt     time.Time              `json:"createdAt"`
 	UpdatedAt     time.Time              `json:"updatedAt"`
+}
+
+// 新增 UserFriend 结构体
+type UserFriend struct {
+	gorm.Model
+	UserID    uint  `gorm:"not null"`
+	FriendID  uint  `gorm:"not null"`
+	User      *User `gorm:"foreignKey:UserID"`
+	Friend    *User `gorm:"foreignKey:FriendID"`
+	Alias     string
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// 新增 UserRoom 结构体
+type UserRoom struct {
+	gorm.Model
+	UserID    uint  `gorm:"not null"`
+	RoomID    uint  `gorm:"not null"`
+	User      *User `gorm:"foreignKey:UserID"`
+	Room      *Room `gorm:"foreignKey:RoomID"`
+	Alias     string
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type FullMessage struct {
