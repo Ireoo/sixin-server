@@ -75,43 +75,48 @@ func HandleRoutes(b *base.Base) http.HandlerFunc {
 		case "/api/users":
 			switch r.Method {
 			case http.MethodGet:
-				b.UserHandler.GetUsers(w, r)
+				userHandler.GetUsers(w, r)
 			case http.MethodPost:
-				b.UserHandler.CreateUser(w, r)
+				userHandler.CreateUser(w, r)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
 		case "/api/message":
 			switch r.Method {
 			case http.MethodPost:
-				b.MessageHandler.CreateMessage(w, r)
+				messageHandler.CreateMessage(w, r)
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 			}
 		default:
 			if strings.HasPrefix(r.URL.Path, "/api/users/") {
 				id := r.URL.Path[len("/api/users/"):]
 				switch r.Method {
 				case http.MethodGet:
-					b.UserHandler.GetUser(w, r, id)
+					userHandler.GetUser(w, r, id)
 				case http.MethodPut:
-					b.UserHandler.UpdateUser(w, r, id)
+					userHandler.UpdateUser(w, r, id)
+
 				case http.MethodDelete:
-					b.UserHandler.DeleteUser(w, r, id)
+					userHandler.DeleteUser(w, r, id)
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 				}
 			} else if strings.HasPrefix(r.URL.Path, "/api/rooms/") {
 				id := r.URL.Path[len("/api/rooms/"):]
 				switch r.Method {
 				case http.MethodGet:
-					b.RoomHandler.GetRoom(w, r, id)
+					roomHandler.GetRoom(w, r, id)
 				case http.MethodPut:
-					b.RoomHandler.UpdateRoom(w, r, id)
+					roomHandler.UpdateRoom(w, r, id)
+
 				case http.MethodDelete:
-					b.RoomHandler.DeleteRoom(w, r, id)
+					roomHandler.DeleteRoom(w, r, id)
 				default:
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 				}
 			} else {
 				http.NotFound(w, r)
@@ -121,9 +126,10 @@ func HandleRoutes(b *base.Base) http.HandlerFunc {
 }
 
 func SetupHTTPHandlers(b *base.Base) {
-	SetHandlers(b.UserHandler, b.RoomHandler, b.MessageHandler)
+	// SetHandlers(userHandler, roomHandler, messageHandler)
 
 	// 设置中间件和路由
+
 	handler := ChainMiddlewares(
 		HandleRoutes(b),
 		LoggerMiddleware,

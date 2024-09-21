@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Ireoo/sixin-server/internal/message"
+	"github.com/Ireoo/sixin-server/base"
 )
 
 // 响应结构体
@@ -20,10 +20,10 @@ func sendJSON(w http.ResponseWriter, status int, resp Response) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-var messageHandler *message.MessageHandler
+var messageHandler *base.MessageHandler
 
 // SetMessageHandler 设置消息处理器
-func SetMessageHandler(mh *message.MessageHandler) {
+func SetMessageHandler(mh *base.MessageHandler) {
 	messageHandler = mh
 }
 
