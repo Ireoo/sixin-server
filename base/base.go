@@ -34,16 +34,13 @@ type Base struct {
 	mu               sync.Mutex
 	IO               *socket.Server
 	WebSocketManager *websocket.WebSocketManager
-	UserHandler      *UserHandler
-	RoomHandler      *RoomHandler
-	MessageHandler   *MessageHandler
 }
 
 func NewBase() *Base {
 	b := &Base{}
-	b.UserHandler = NewUserHandler(b)
-	b.RoomHandler = NewRoomHandler(b)
-	b.MessageHandler = NewMessageHandler(b)
+	b.loadConfig()
+	b.createSubfolders()
+	b.initMessages()
 	return b
 }
 
