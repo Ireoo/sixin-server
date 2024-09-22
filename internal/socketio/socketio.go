@@ -132,7 +132,6 @@ func (sim *SocketIOManager) handleGetChats(client *socket.Socket, args ...any) {
 	messages, err := sim.baseInstance.DbManager.GetChats()
 	if err != nil {
 		client.Emit("error", err.Error())
-
 		return
 	}
 	client.Emit("getChats", messages)
@@ -168,7 +167,6 @@ func (sim *SocketIOManager) handleMessage(client *socket.Socket, args ...any) {
 	}
 
 	var msgBytes []byte
-
 	switch arg := args[0].(type) {
 	case string:
 		msgBytes = []byte(arg)
@@ -357,10 +355,6 @@ func (sim *SocketIOManager) SendMessageToUsers(message interface{}, userIDs ...u
 		})
 	}
 }
-
-// func (sim *SocketIOManager) GetSocketIOServer() *socket.Server {
-// 	return sim.io
-// }
 
 func (sim *SocketIOManager) handleCreateUser(client *socket.Socket, args ...any) {
 	if len(args) == 0 {

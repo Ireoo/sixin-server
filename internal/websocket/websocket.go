@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/internal/middleware"
 	"github.com/Ireoo/sixin-server/models"
 	"github.com/gorilla/websocket"
 )
@@ -32,12 +33,23 @@ func NewWebSocketManager(base *base.Base) *WebSocketManager {
 }
 
 func (wsm *WebSocketManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("Failed to upgrade to WebSocket: %v", err)
-		return
-	}
+	middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			// 处理错误
+			return
+		}
+		defer conn.Close()
 
+		// 获取用户ID
+		userID := r.Header.Get("UserID")
+
+		// 处理WebSocket连接
+		wsm.handleConnection(conn, userID, r)
+	})).ServeHTTP(w, r)
+}
+
+func (wsm *WebSocketManager) handleConnection(conn *websocket.Conn, userID string, r *http.Request) {
 	connType := r.URL.Query().Get("type")
 	if connType == "" {
 		connType = "web"

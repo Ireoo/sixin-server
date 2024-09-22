@@ -14,6 +14,8 @@ import (
 	"github.com/Ireoo/sixin-server/internal/handlers"
 	"github.com/Ireoo/sixin-server/internal/middleware"
 	"github.com/Ireoo/sixin-server/models"
+	"github.com/dgrijalva/jwt-go"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type HTTPManager struct {
@@ -75,24 +77,34 @@ func (hm *HTTPManager) HandleRoutes() http.HandlerFunc {
 		switch r.URL.Path {
 		case "/api/ping":
 			handlers.Ping(w, r)
-		case "/api/users":
-			hm.handleUsers(w, r)
-		case "/api/rooms":
-			hm.handleRooms(w, r)
-		case "/api/message":
-			hm.handleMessage(w, r)
-		case "/api/room-members":
-			hm.handleRoomMembers(w, r)
-		case "/api/room-privacy":
-			hm.handleSetRoomPrivacy(w, r)
+		case "/api/login":
+			hm.handleLogin(w, r)
+		case "/api/register":
+			hm.handleRegister(w, r)
 		default:
-			if strings.HasPrefix(r.URL.Path, "/api/users/") {
-				hm.handleUserByID(w, r)
-			} else if strings.HasPrefix(r.URL.Path, "/api/rooms/") {
-				hm.handleRoomByID(w, r)
-			} else {
-				http.NotFound(w, r)
-			}
+			// 对其他所有路由应用身份验证中间件
+			middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/users":
+					hm.handleUsers(w, r)
+				case "/api/rooms":
+					hm.handleRooms(w, r)
+				case "/api/message":
+					hm.handleMessage(w, r)
+				case "/api/room-members":
+					hm.handleRoomMembers(w, r)
+				case "/api/room-privacy":
+					hm.handleSetRoomPrivacy(w, r)
+				default:
+					if strings.HasPrefix(r.URL.Path, "/api/users/") {
+						hm.handleUserByID(w, r)
+					} else if strings.HasPrefix(r.URL.Path, "/api/rooms/") {
+						hm.handleRoomByID(w, r)
+					} else {
+						http.NotFound(w, r)
+					}
+				}
+			})).ServeHTTP(w, r)
 		}
 	}
 }
@@ -256,7 +268,7 @@ func SetupHTTPHandlers(b *base.Base) {
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
 
 	// 添加用户注册路由
-	http.HandleFunc("/register", RegisterUser(b))
+	http.HandleFunc("/register", httpManager.handleRegister)
 }
 
 func (hm *HTTPManager) handleRoomMembers(w http.ResponseWriter, r *http.Request) {
@@ -348,27 +360,114 @@ func (hm *HTTPManager) handleSetRoomPrivacy(w http.ResponseWriter, r *http.Reque
 	sendJSONResponse(w, map[string]string{"message": "房间隐私设置更新成功"}, err)
 }
 
-func RegisterUser(b *base.Base) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var userData *models.User
-
-		if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		err := b.DbManager.CreateUser(userData)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully", "id": fmt.Sprintf("%d", userData.ID)})
+func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		return
 	}
+
+	var userData *models.User
+
+	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("无效的请求数据"))
+		return
+	}
+
+	// 验证必填字段
+	if userData.Username == "" || userData.Password == "" || userData.Email == "" || userData.WechatID == "" {
+		sendJSONResponse(w, nil, fmt.Errorf("用户名、密码、邮箱和微信ID为必填项"))
+		return
+	}
+
+	// 检查用户名是否已存在
+	existingUser, _ := hm.baseInstance.DbManager.GetUserByUsername(userData.Username)
+	if existingUser != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("用户名已存在"))
+		return
+	}
+
+	// 检查邮箱是否已存在
+	existingUser, _ = hm.baseInstance.DbManager.GetUserByEmail(userData.Email)
+	if existingUser != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("邮箱已被使用"))
+		return
+	}
+
+	// 检查微信ID是否已存在
+	existingUser, _ = hm.baseInstance.DbManager.GetUserByWechatID(userData.WechatID)
+	if existingUser != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("微信ID已被使用"))
+		return
+	}
+
+	// 创建新用户
+	newUser := &models.User{
+		Username: userData.Username,
+		Email:    userData.Email,
+		WechatID: userData.WechatID,
+		Name:     userData.Name,
+		Phone:    userData.Phone,
+	}
+
+	// 生成密码哈希
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.DefaultCost)
+	if err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("密码加密失败"))
+		return
+	}
+	newUser.Password = string(hashedPassword)
+
+	// 创建用户
+	err = hm.baseInstance.DbManager.CreateUser(newUser)
+	if err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("创建用户失败: %v", err))
+		return
+	}
+
+	// 移除敏感信息
+	newUser.Password = ""
+	newUser.SecretKey = ""
+
+	sendJSONResponse(w, map[string]interface{}{
+		"message": "用户注册成功",
+		"user":    newUser,
+	}, nil)
+}
+
+func (hm *HTTPManager) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		return
+	}
+
+	var loginData struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&loginData); err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("无效的请求数据"))
+		return
+	}
+
+	user, err := hm.baseInstance.DbManager.AuthenticateUser(loginData.Username, loginData.Password)
+	if err != nil {
+		sendJSONResponse(w, nil, err)
+		return
+	}
+
+	// 创建 JWT token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": user.ID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+
+	// 使用密钥签名 token（这里使用一个示例密钥，实际应用中应该使用更安全的方式存储和管理密钥）
+	tokenString, err := token.SignedString([]byte("your_secret_key"))
+	if err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("生成 token 失败"))
+		return
+	}
+
+	sendJSONResponse(w, map[string]string{"token": tokenString}, nil)
 }

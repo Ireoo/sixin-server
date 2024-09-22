@@ -1,8 +1,12 @@
 package database
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Ireoo/sixin-server/models"
 	"gorm.io/driver/clickhouse"
@@ -132,7 +136,26 @@ func (dm *DatabaseManager) GetUserByID(id uint) (models.User, error) {
 }
 
 func (dm *DatabaseManager) CreateUser(user *models.User) error {
-	return dm.DB.Create(user).Error
+	// 生成密钥
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return fmt.Errorf("无法生成密钥: %v", err)
+	}
+	user.SecretKey = secretKey
+
+	// 哈希密码
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("无法哈希密码: %v", err)
+	}
+	user.Password = string(hashedPassword)
+
+	// 创建用户
+	if err := dm.DB.Create(user).Error; err != nil {
+		return fmt.Errorf("无法创建用户: %v", err)
+	}
+
+	return nil
 }
 
 func (dm *DatabaseManager) UpdateUser(id uint, updatedUser models.User) error {
@@ -284,4 +307,69 @@ func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID string, isPrivate
 	return dm.DB.Model(&models.UserRoom{}).
 		Where("user_id = ? AND room_id = ?", userID, roomID).
 		Update("is_private", isPrivate).Error
+}
+
+// 辅助函数：生成密钥
+func generateSecretKey() (string, error) {
+	key := make([]byte, 32) // 256位密钥
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(key), nil
+}
+
+// 用户登录验证方法
+func (dm *DatabaseManager) AuthenticateUser(username, password string) (*models.User, error) {
+	var user models.User
+	if err := dm.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		return nil, fmt.Errorf("用户不存在")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		return nil, fmt.Errorf("密码不正确")
+	}
+
+	return &user, nil
+}
+
+// 用户资料更新功能
+func (dm *DatabaseManager) UpdateUserProfile(userID uint, updates map[string]interface{}) error {
+	return dm.DB.Model(&models.User{}).Where("id = ?", userID).Updates(updates).Error
+}
+
+func (dm *DatabaseManager) GetUserByUsername(username string) (*models.User, error) {
+	var user models.User
+	err := dm.DB.Where("username = ?", username).First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (dm *DatabaseManager) GetUserByEmail(email string) (*models.User, error) {
+	var user models.User
+	err := dm.DB.Where("email = ?", email).First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (dm *DatabaseManager) GetUserByWechatID(wechatID string) (*models.User, error) {
+	var user models.User
+	err := dm.DB.Where("wechat_id = ?", wechatID).First(&user).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
 }
