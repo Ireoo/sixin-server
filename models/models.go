@@ -90,6 +90,7 @@ type UserFriend struct {
 	User      *User `gorm:"foreignKey:UserID"`
 	Friend    *User `gorm:"foreignKey:FriendID"`
 	Alias     string
+	IsPrivate bool      `gorm:"default:false"` // 新增字段：是否为私密好友
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
@@ -102,6 +103,7 @@ type UserRoom struct {
 	User      *User `gorm:"foreignKey:UserID"`
 	Room      *Room `gorm:"foreignKey:RoomID"`
 	Alias     string
+	IsPrivate bool      `gorm:"default:false"` // 新增字段：是否为私密房间
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

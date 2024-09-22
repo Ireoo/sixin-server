@@ -56,24 +56,32 @@ func (sim *SocketIOManager) emitInitialState(client *socket.Socket) {
 
 func (sim *SocketIOManager) registerClientHandlers(client *socket.Socket) {
 	events := map[string]func(*socket.Socket, ...any){
-		"self":           sim.handleSelf,
-		"receive":        sim.handleReceive,
-		"message":        sim.handleMessage,
-		"email":          sim.handleEmail,
-		"revokemsg":      sim.handleRevokeMsg,
-		"getChats":       sim.handleGetChats,
-		"getRooms":       sim.handleGetRooms,
-		"getUsers":       sim.handleGetUsers,
-		"getRoomByUsers": sim.handleGetRoomByUsers,
-		"offer":          sim.handleOffer,
-		"answer":         sim.handleAnswer,
-		"ice-candidate":  sim.handleIceCandidate,
-		"createUser":     sim.handleCreateUser,
-		"updateUser":     sim.handleUpdateUser,
-		"deleteUser":     sim.handleDeleteUser,
-		"createRoom":     sim.handleCreateRoom,
-		"updateRoom":     sim.handleUpdateRoom,
-		"deleteRoom":     sim.handleDeleteRoom,
+		"self":               sim.handleSelf,
+		"receive":            sim.handleReceive,
+		"message":            sim.handleMessage,
+		"email":              sim.handleEmail,
+		"revokemsg":          sim.handleRevokeMsg,
+		"getChats":           sim.handleGetChats,
+		"getRooms":           sim.handleGetRooms,
+		"getUsers":           sim.handleGetUsers,
+		"getRoomByUsers":     sim.handleGetRoomByUsers,
+		"offer":              sim.handleOffer,
+		"answer":             sim.handleAnswer,
+		"ice-candidate":      sim.handleIceCandidate,
+		"createUser":         sim.handleCreateUser,
+		"updateUser":         sim.handleUpdateUser,
+		"deleteUser":         sim.handleDeleteUser,
+		"createRoom":         sim.handleCreateRoom,
+		"updateRoom":         sim.handleUpdateRoom,
+		"deleteRoom":         sim.handleDeleteRoom,
+		"addFriend":          sim.handleAddFriend,
+		"removeFriend":       sim.handleRemoveFriend,
+		"updateFriendAlias":  sim.handleUpdateFriendAlias,
+		"setFriendPrivacy":   sim.handleSetFriendPrivacy,
+		"addUserToRoom":      sim.handleAddUserToRoom,
+		"removeUserFromRoom": sim.handleRemoveUserFromRoom,
+		"updateRoomAlias":    sim.handleUpdateRoomAlias,
+		"setRoomPrivacy":     sim.handleSetRoomPrivacy,
 	}
 
 	for event, handler := range events {
@@ -406,12 +414,15 @@ func (sim *SocketIOManager) handleDeleteUser(client *socket.Socket, args ...any)
 		client.Emit("error", "缺少用户ID")
 		return
 	}
-	userID, err := strconv.ParseUint(args[0].(string), 10, 64)
+
+	userID := args[0].(string)
+	userIDUint, err := strconv.ParseUint(userID, 10, 64)
 	if err != nil {
 		client.Emit("error", "无效的用户ID")
 		return
 	}
-	if err := sim.baseInstance.DbManager.DeleteUser(uint(userID)); err != nil {
+
+	if err := sim.baseInstance.DbManager.DeleteUser(uint(userIDUint)); err != nil {
 		client.Emit("error", "删除用户失败")
 		return
 	}
@@ -475,13 +486,202 @@ func (sim *SocketIOManager) handleDeleteRoom(client *socket.Socket, args ...any)
 	roomID := args[0].(string)
 	roomIDUint, err := strconv.ParseUint(roomID, 10, 64)
 	if err != nil {
-		client.Emit("error", "房间ID无效")
+		client.Emit("error", "无效的房间ID")
 		return
 	}
+
 	if err := sim.baseInstance.DbManager.DeleteRoom(uint(roomIDUint)); err != nil {
 		client.Emit("error", "删除房间失败")
 		return
 	}
 
 	client.Emit("roomDeleted", roomID)
+}
+
+func (sim *SocketIOManager) handleAddFriend(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少用户ID或好友ID")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	friendID, ok2 := args[1].(float64)
+
+	if !ok1 || !ok2 {
+		client.Emit("error", "无效的用户ID或好友ID")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.AddFriend(uint(userID), uint(friendID), "", false)
+	if err != nil {
+		client.Emit("error", "添加好友失败: "+err.Error())
+		return
+	}
+
+	client.Emit("friendAdded", map[string]uint{"userID": uint(userID), "friendID": uint(friendID)})
+}
+
+func (sim *SocketIOManager) handleRemoveFriend(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少用户ID或好友ID")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	friendID, ok2 := args[1].(float64)
+
+	if !ok1 || !ok2 {
+		client.Emit("error", "无效的用户ID或好友ID")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.RemoveFriend(uint(userID), uint(friendID))
+	if err != nil {
+		client.Emit("error", "删除好友失败: "+err.Error())
+		return
+	}
+
+	client.Emit("friendRemoved", map[string]uint{"userID": uint(userID), "friendID": uint(friendID)})
+}
+
+func (sim *SocketIOManager) handleUpdateFriendAlias(client *socket.Socket, args ...any) {
+	if len(args) < 3 {
+		client.Emit("error", "缺少用户ID、好友ID或别名")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	friendID, ok2 := args[1].(float64)
+	alias, ok3 := args[2].(string)
+
+	if !ok1 || !ok2 || !ok3 {
+		client.Emit("error", "无效的参数")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.UpdateFriendAlias(uint(userID), uint(friendID), alias)
+	if err != nil {
+		client.Emit("error", "更新好友别名失败: "+err.Error())
+		return
+	}
+
+	client.Emit("friendAliasUpdated", map[string]interface{}{"userID": uint(userID), "friendID": uint(friendID), "alias": alias})
+}
+
+func (sim *SocketIOManager) handleSetFriendPrivacy(client *socket.Socket, args ...any) {
+	if len(args) < 3 {
+		client.Emit("error", "缺少用户ID、好友ID或隐私设置")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	friendID, ok2 := args[1].(float64)
+	privacy, ok3 := args[2].(bool)
+
+	if !ok1 || !ok2 || !ok3 {
+		client.Emit("error", "无效的参数")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.SetFriendPrivacy(uint(userID), uint(friendID), privacy)
+	if err != nil {
+		client.Emit("error", "设置好友隐私失败: "+err.Error())
+		return
+	}
+
+	client.Emit("friendPrivacySet", map[string]interface{}{"userID": uint(userID), "friendID": uint(friendID), "privacy": privacy})
+}
+
+func (sim *SocketIOManager) handleAddUserToRoom(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少用户ID或房间ID")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	roomID, ok2 := args[1].(float64)
+
+	if !ok1 || !ok2 {
+		client.Emit("error", "无效的用户ID或房间ID")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.AddUserToRoom(uint(userID), uint(roomID), "", false)
+	if err != nil {
+		client.Emit("error", "将用户添加到房间失败: "+err.Error())
+		return
+	}
+
+	client.Emit("userAddedToRoom", map[string]uint{"userID": uint(userID), "roomID": uint(roomID)})
+}
+
+func (sim *SocketIOManager) handleRemoveUserFromRoom(client *socket.Socket, args ...any) {
+	if len(args) < 2 {
+		client.Emit("error", "缺少用户ID或房间ID")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	roomID, ok2 := args[1].(float64)
+
+	if !ok1 || !ok2 {
+		client.Emit("error", "无效的用户ID或房间ID")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.RemoveUserFromRoom(uint(userID), uint(roomID))
+	if err != nil {
+		client.Emit("error", "将用户从房间移除失败: "+err.Error())
+		return
+	}
+
+	client.Emit("userRemovedFromRoom", map[string]uint{"userID": uint(userID), "roomID": uint(roomID)})
+}
+
+func (sim *SocketIOManager) handleUpdateRoomAlias(client *socket.Socket, args ...any) {
+	if len(args) < 3 {
+		client.Emit("error", "缺少用户ID、房间ID或别名")
+		return
+	}
+
+	userID, ok1 := args[0].(float64)
+	roomID, ok2 := args[1].(float64)
+	alias, ok3 := args[2].(string)
+
+	if !ok1 || !ok2 || !ok3 {
+		client.Emit("error", "无效的参数")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.UpdateRoomAlias(uint(userID), uint(roomID), alias)
+	if err != nil {
+		client.Emit("error", "更新房间别名失败: "+err.Error())
+		return
+	}
+
+	client.Emit("roomAliasUpdated", map[string]interface{}{"userID": uint(userID), "roomID": uint(roomID), "alias": alias})
+}
+
+func (sim *SocketIOManager) handleSetRoomPrivacy(client *socket.Socket, args ...any) {
+	if len(args) < 3 {
+		client.Emit("error", "缺少房间ID、用户ID或隐私设置")
+		return
+	}
+
+	roomID, ok1 := args[0].(float64)
+	userID, ok2 := args[1].(float64)
+	privacy, ok3 := args[2].(bool)
+
+	if !ok1 || !ok2 || !ok3 {
+		client.Emit("error", "无效的参数")
+		return
+	}
+
+	err := sim.baseInstance.DbManager.SetRoomPrivacy(uint(roomID), uint(userID), privacy)
+	if err != nil {
+		client.Emit("error", "设置房间隐私失败: "+err.Error())
+		return
+	}
+
+	client.Emit("roomPrivacySet", map[string]interface{}{"roomID": uint(roomID), "userID": uint(userID), "privacy": privacy})
 }

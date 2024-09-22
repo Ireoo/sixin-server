@@ -143,7 +143,7 @@ func (dm *DatabaseManager) DeleteUser(id uint) error {
 	return dm.DB.Delete(&models.User{}, id).Error
 }
 
-// 房间相关操作
+// 户间相关操作
 func (dm *DatabaseManager) GetAllRooms() ([]models.Room, error) {
 	var rooms []models.Room
 	err := dm.DB.Preload("Owner").Preload("Members").Find(&rooms).Error
@@ -202,3 +202,86 @@ func (dm *DatabaseManager) GetMessageByID(msgID string) (*models.Message, error)
 }
 
 // 其他可能需要的数据库操作方法...
+
+// 好友相关操作
+func (dm *DatabaseManager) AddFriend(userID, friendID uint, alias string, isPrivate bool) error {
+	userFriend := models.UserFriend{
+		UserID:    userID,
+		FriendID:  friendID,
+		Alias:     alias,
+		IsPrivate: isPrivate,
+	}
+	return dm.DB.Create(&userFriend).Error
+}
+
+func (dm *DatabaseManager) RemoveFriend(userID, friendID uint) error {
+	return dm.DB.Where("user_id = ? AND friend_id = ?", userID, friendID).Delete(&models.UserFriend{}).Error
+}
+
+func (dm *DatabaseManager) GetFriends(userID uint) ([]models.User, error) {
+	var friends []models.User
+	err := dm.DB.Joins("JOIN user_friends ON users.id = user_friends.friend_id").
+		Where("user_friends.user_id = ?", userID).
+		Find(&friends).Error
+	return friends, err
+}
+
+func (dm *DatabaseManager) UpdateFriendAlias(userID, friendID uint, newAlias string) error {
+	return dm.DB.Model(&models.UserFriend{}).
+		Where("user_id = ? AND friend_id = ?", userID, friendID).
+		Update("alias", newAlias).Error
+}
+
+func (dm *DatabaseManager) SetFriendPrivacy(userID, friendID uint, isPrivate bool) error {
+	return dm.DB.Model(&models.UserFriend{}).
+		Where("user_id = ? AND friend_id = ?", userID, friendID).
+		Update("is_private", isPrivate).Error
+}
+
+// 户间相关操作（新增和修改）
+func (dm *DatabaseManager) AddUserToRoom(userID, roomID uint, alias string, isPrivate bool) error {
+	userRoom := models.UserRoom{
+		UserID:    userID,
+		RoomID:    roomID,
+		Alias:     alias,
+		IsPrivate: isPrivate,
+	}
+	return dm.DB.Create(&userRoom).Error
+}
+
+func (dm *DatabaseManager) RemoveUserFromRoom(userID, roomID uint) error {
+	return dm.DB.Where("user_id = ? AND room_id = ?", userID, roomID).Delete(&models.UserRoom{}).Error
+}
+
+func (dm *DatabaseManager) GetRoomMembers(roomID uint) ([]models.User, error) {
+	var members []models.User
+	err := dm.DB.Joins("JOIN user_rooms ON users.id = user_rooms.user_id").
+		Where("user_rooms.room_id = ?", roomID).
+		Find(&members).Error
+	return members, err
+}
+
+func (dm *DatabaseManager) UpdateRoomAlias(userID, roomID uint, newAlias string) error {
+	return dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND room_id = ?", userID, roomID).
+		Update("alias", newAlias).Error
+}
+
+func (dm *DatabaseManager) SetRoomPrivacy(userID, roomID uint, isPrivate bool) error {
+	return dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND room_id = ?", userID, roomID).
+		Update("is_private", isPrivate).Error
+}
+
+func (dm *DatabaseManager) UpdateRoomMemberAlias(userID, roomID, alias string) error {
+	return dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND room_id = ?", userID, roomID).
+		Update("alias", alias).Error
+}
+
+// 新增的方法
+func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID string, isPrivate bool) error {
+	return dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND room_id = ?", userID, roomID).
+		Update("is_private", isPrivate).Error
+}
