@@ -42,29 +42,30 @@ func (wsm *WebSocketManager) HandleWebSocket(w http.ResponseWriter, r *http.Requ
 		defer conn.Close()
 
 		// 获取用户ID
-		userID := r.Header.Get("UserID")
+		userID := r.Context().Value("UserID").(uint)
 
 		// 处理WebSocket连接
 		wsm.handleConnection(conn, userID, r)
 	})).ServeHTTP(w, r)
 }
 
-func (wsm *WebSocketManager) handleConnection(conn *websocket.Conn, userID string, r *http.Request) {
+func (wsm *WebSocketManager) handleConnection(conn *websocket.Conn, userID uint, r *http.Request) {
 	connType := r.URL.Query().Get("type")
 	if connType == "" {
 		connType = "web"
 	}
 
-	wsm.addConnection(connType, conn)
-	defer wsm.removeConnection(connType, conn)
+	userConnType := fmt.Sprintf("user_%d", userID)
+	wsm.addConnection(userConnType, conn)
+	defer wsm.removeConnection(userConnType, conn)
 
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("WebSocket read error: %v", err)
+			log.Printf("WebSocket读取错误: %v", err)
 			break
 		}
-		wsm.handleMessage(message)
+		wsm.handleMessage(message, userID)
 	}
 }
 
@@ -86,7 +87,7 @@ func (wsm *WebSocketManager) removeConnection(connType string, conn *websocket.C
 	}
 }
 
-func (wsm *WebSocketManager) handleMessage(msgBytes []byte) {
+func (wsm *WebSocketManager) handleMessage(msgBytes []byte, userID uint) {
 	// 解析通用消息结构
 	var genericMessage struct {
 		Type string          `json:"type"`
@@ -105,23 +106,24 @@ func (wsm *WebSocketManager) handleMessage(msgBytes []byte) {
 			log.Printf("解析消息数据失败: %v", err)
 			return
 		}
+		message.TalkerID = userID // 使用身份验证获取的用户ID
 		wsm.handleChatMessage(&message)
 	case "addFriend":
-		wsm.handleAddFriend(genericMessage.Data)
+		wsm.handleAddFriend(genericMessage.Data, userID)
 	case "removeFriend":
-		wsm.handleRemoveFriend(genericMessage.Data)
+		wsm.handleRemoveFriend(genericMessage.Data, userID)
 	case "updateFriendAlias":
-		wsm.handleUpdateFriendAlias(genericMessage.Data)
+		wsm.handleUpdateFriendAlias(genericMessage.Data, userID)
 	case "setFriendPrivacy":
-		wsm.handleSetFriendPrivacy(genericMessage.Data)
+		wsm.handleSetFriendPrivacy(genericMessage.Data, userID)
 	case "addUserToRoom":
-		wsm.handleAddUserToRoom(genericMessage.Data)
+		wsm.handleAddUserToRoom(genericMessage.Data, userID)
 	case "removeUserFromRoom":
-		wsm.handleRemoveUserFromRoom(genericMessage.Data)
+		wsm.handleRemoveUserFromRoom(genericMessage.Data, userID)
 	case "updateRoomAlias":
-		wsm.handleUpdateRoomAlias(genericMessage.Data)
+		wsm.handleUpdateRoomAlias(genericMessage.Data, userID)
 	case "setRoomPrivacy":
-		wsm.handleSetRoomPrivacy(genericMessage.Data)
+		wsm.handleSetRoomPrivacy(genericMessage.Data, userID)
 	default:
 		log.Printf("未知的消息类型: %s", genericMessage.Type)
 	}
@@ -150,9 +152,8 @@ func (wsm *WebSocketManager) handleChatMessage(message *models.Message) {
 	wsm.sendMessageToUsers(fullMessage, message.TalkerID, recipientID)
 }
 
-func (wsm *WebSocketManager) handleAddFriend(data json.RawMessage) {
+func (wsm *WebSocketManager) handleAddFriend(data json.RawMessage, userID uint) {
 	var friendRequest struct {
-		UserID    uint   `json:"user_id"`
 		FriendID  uint   `json:"friend_id"`
 		Alias     string `json:"alias"`
 		IsPrivate bool   `json:"is_private"`
@@ -162,20 +163,19 @@ func (wsm *WebSocketManager) handleAddFriend(data json.RawMessage) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.AddFriend(friendRequest.UserID, friendRequest.FriendID, friendRequest.Alias, friendRequest.IsPrivate)
+	err := wsm.baseInstance.DbManager.AddFriend(userID, friendRequest.FriendID, friendRequest.Alias, friendRequest.IsPrivate)
 	if err != nil {
 		log.Printf("添加好友失败: %v", err)
 		return
 	}
 
 	// 发送通知给相关用户
-	wsm.sendNotification(friendRequest.UserID, "好友添加成功")
+	wsm.sendNotification(userID, "好友添加成功")
 	wsm.sendNotification(friendRequest.FriendID, "您有新的好友请求")
 }
 
-func (wsm *WebSocketManager) handleRemoveFriend(data []byte) {
+func (wsm *WebSocketManager) handleRemoveFriend(data []byte, userID uint) {
 	var friendRequest struct {
-		UserID   uint `json:"user_id"`
 		FriendID uint `json:"friend_id"`
 	}
 	if err := json.Unmarshal(data, &friendRequest); err != nil {
@@ -183,20 +183,19 @@ func (wsm *WebSocketManager) handleRemoveFriend(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.RemoveFriend(friendRequest.UserID, friendRequest.FriendID)
+	err := wsm.baseInstance.DbManager.RemoveFriend(userID, friendRequest.FriendID)
 	if err != nil {
 		log.Printf("删除好友失败: %v", err)
 		return
 	}
 
 	// 发送通知给相关用户
-	wsm.sendNotification(friendRequest.UserID, "好友删除成功")
+	wsm.sendNotification(userID, "好友删除成功")
 	wsm.sendNotification(friendRequest.FriendID, "您已被移除好友列表")
 }
 
-func (wsm *WebSocketManager) handleUpdateFriendAlias(data []byte) {
+func (wsm *WebSocketManager) handleUpdateFriendAlias(data []byte, userID uint) {
 	var aliasRequest struct {
-		UserID   uint   `json:"user_id"`
 		FriendID uint   `json:"friend_id"`
 		Alias    string `json:"alias"`
 	}
@@ -205,19 +204,18 @@ func (wsm *WebSocketManager) handleUpdateFriendAlias(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.UpdateFriendAlias(aliasRequest.UserID, aliasRequest.FriendID, aliasRequest.Alias)
+	err := wsm.baseInstance.DbManager.UpdateFriendAlias(userID, aliasRequest.FriendID, aliasRequest.Alias)
 	if err != nil {
 		log.Printf("更新好友别名失败: %v", err)
 		return
 	}
 
 	// 发送通知给用户
-	wsm.sendNotification(aliasRequest.UserID, "好友别名更新成功")
+	wsm.sendNotification(userID, "好友别名更新成功")
 }
 
-func (wsm *WebSocketManager) handleSetFriendPrivacy(data []byte) {
+func (wsm *WebSocketManager) handleSetFriendPrivacy(data []byte, userID uint) {
 	var privacyRequest struct {
-		UserID    uint `json:"user_id"`
 		FriendID  uint `json:"friend_id"`
 		IsPrivate bool `json:"is_private"`
 	}
@@ -226,19 +224,18 @@ func (wsm *WebSocketManager) handleSetFriendPrivacy(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.SetFriendPrivacy(privacyRequest.UserID, privacyRequest.FriendID, privacyRequest.IsPrivate)
+	err := wsm.baseInstance.DbManager.SetFriendPrivacy(userID, privacyRequest.FriendID, privacyRequest.IsPrivate)
 	if err != nil {
 		log.Printf("设置好友隐私失败: %v", err)
 		return
 	}
 
 	// 发送通知给用户
-	wsm.sendNotification(privacyRequest.UserID, "好友隐私设置更新成功")
+	wsm.sendNotification(userID, "好友隐私设置更新成功")
 }
 
-func (wsm *WebSocketManager) handleAddUserToRoom(data []byte) {
+func (wsm *WebSocketManager) handleAddUserToRoom(data []byte, userID uint) {
 	var roomRequest struct {
-		UserID    uint   `json:"user_id"`
 		RoomID    uint   `json:"room_id"`
 		Alias     string `json:"alias"`
 		IsPrivate bool   `json:"is_private"`
@@ -248,20 +245,19 @@ func (wsm *WebSocketManager) handleAddUserToRoom(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.AddUserToRoom(roomRequest.UserID, roomRequest.RoomID, roomRequest.Alias, roomRequest.IsPrivate)
+	err := wsm.baseInstance.DbManager.AddUserToRoom(userID, roomRequest.RoomID, roomRequest.Alias, roomRequest.IsPrivate)
 	if err != nil {
 		log.Printf("添加用户到房间失败: %v", err)
 		return
 	}
 
 	// 发送通知给相关用户
-	wsm.sendNotification(roomRequest.UserID, "您已被添加到新的房间")
+	wsm.sendNotification(userID, "您已被添加到新的房间")
 	// 可以考虑通知房间内的其他成员
 }
 
-func (wsm *WebSocketManager) handleRemoveUserFromRoom(data []byte) {
+func (wsm *WebSocketManager) handleRemoveUserFromRoom(data []byte, userID uint) {
 	var roomRequest struct {
-		UserID uint `json:"user_id"`
 		RoomID uint `json:"room_id"`
 	}
 	if err := json.Unmarshal(data, &roomRequest); err != nil {
@@ -269,20 +265,19 @@ func (wsm *WebSocketManager) handleRemoveUserFromRoom(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.RemoveUserFromRoom(roomRequest.UserID, roomRequest.RoomID)
+	err := wsm.baseInstance.DbManager.RemoveUserFromRoom(userID, roomRequest.RoomID)
 	if err != nil {
 		log.Printf("从房间移除用户失败: %v", err)
 		return
 	}
 
 	// 发送通知给相关用户
-	wsm.sendNotification(roomRequest.UserID, "您已被移出房间")
+	wsm.sendNotification(userID, "您已被移出房间")
 	// 可以考虑通知房间内的其他成员
 }
 
-func (wsm *WebSocketManager) handleUpdateRoomAlias(data []byte) {
+func (wsm *WebSocketManager) handleUpdateRoomAlias(data []byte, userID uint) {
 	var aliasRequest struct {
-		UserID uint   `json:"user_id"`
 		RoomID uint   `json:"room_id"`
 		Alias  string `json:"alias"`
 	}
@@ -291,19 +286,18 @@ func (wsm *WebSocketManager) handleUpdateRoomAlias(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.UpdateRoomAlias(aliasRequest.UserID, aliasRequest.RoomID, aliasRequest.Alias)
+	err := wsm.baseInstance.DbManager.UpdateRoomAlias(userID, aliasRequest.RoomID, aliasRequest.Alias)
 	if err != nil {
 		log.Printf("更新房间别名失败: %v", err)
 		return
 	}
 
 	// 发送通知给用户
-	wsm.sendNotification(aliasRequest.UserID, "房间别名更新成功")
+	wsm.sendNotification(userID, "房间别名更新成功")
 }
 
-func (wsm *WebSocketManager) handleSetRoomPrivacy(data []byte) {
+func (wsm *WebSocketManager) handleSetRoomPrivacy(data []byte, userID uint) {
 	var privacyRequest struct {
-		UserID    uint `json:"user_id"`
 		RoomID    uint `json:"room_id"`
 		IsPrivate bool `json:"is_private"`
 	}
@@ -312,14 +306,14 @@ func (wsm *WebSocketManager) handleSetRoomPrivacy(data []byte) {
 		return
 	}
 
-	err := wsm.baseInstance.DbManager.SetRoomPrivacy(privacyRequest.UserID, privacyRequest.RoomID, privacyRequest.IsPrivate)
+	err := wsm.baseInstance.DbManager.SetRoomPrivacy(userID, privacyRequest.RoomID, privacyRequest.IsPrivate)
 	if err != nil {
 		log.Printf("设置房间隐私失败: %v", err)
 		return
 	}
 
 	// 发送通知给用户
-	wsm.sendNotification(privacyRequest.UserID, "房间隐私设置更新成功")
+	wsm.sendNotification(userID, "房间隐私设置更新成功")
 }
 
 func (wsm *WebSocketManager) sendNotification(userID uint, message string) {

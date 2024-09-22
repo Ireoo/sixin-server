@@ -19,7 +19,7 @@ type Claims struct {
 
 // 生成 JWT
 func GenerateJWT(userID uint) (string, error) {
-	expirationTime := time.Now().Add(24 * time.Hour)
+	expirationTime := time.Now().Add(7 * 24 * time.Hour)
 	claims := &Claims{
 		UserID: userID,
 		StandardClaims: jwt.StandardClaims{
@@ -70,7 +70,30 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		}
 		// 添加用户 ID 到上下文中
 		ctx := r.Context()
-		ctx = context.WithValue(ctx, "user_id", claims.UserID)
+		ctx = context.WithValue(ctx, contextKey("user_id"), claims.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// 验证 token 并返回用户 ID
+func ValidateToken(token string) (uint, error) {
+	claims, err := ValidateJWT(token)
+	if err != nil {
+		return 0, err
+	}
+	return claims.UserID, nil
+}
+
+// 用于从上下文中获取用户 ID 的键
+type contextKey string
+
+const UserIDKey contextKey = "user_id"
+
+// 从上下文中获取用户 ID
+func GetUserIDFromContext(ctx context.Context) (uint, error) {
+	userID, ok := ctx.Value(UserIDKey).(uint)
+	if !ok {
+		return 0, errors.New("user ID not found in context")
+	}
+	return userID, nil
 }

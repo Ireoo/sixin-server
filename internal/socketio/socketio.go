@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
+	"github.com/Ireoo/sixin-server/internal/middleware"
 	"github.com/Ireoo/sixin-server/models"
 
 	"github.com/pion/webrtc/v3"
@@ -29,7 +30,33 @@ func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
 	}
 }
 
+func (sim *SocketIOManager) authMiddleware(next func(*socket.Socket, ...any)) func(*socket.Socket, ...any) {
+	return func(s *socket.Socket, args ...any) {
+		token, _ := s.Request().Query().Get("token")
+		if token == "" {
+			s.Emit("error", "未提供身份验证令牌")
+			s.Disconnect(true)
+			return
+		}
+
+		userID, err := middleware.ValidateToken(token)
+		if err != nil {
+			s.Emit("error", "无效的身份验证令牌")
+			s.Disconnect(true)
+			return
+		}
+
+		s.SetData(userID)
+		next(s, args...)
+	}
+}
+
 func (sim *SocketIOManager) SetupSocketHandlers() *socket.Server {
+	sim.Io.Use(func(s *socket.Socket, next func(*socket.ExtendedError)) {
+		sim.authMiddleware(func(s *socket.Socket, _ ...any) {
+			next(nil)
+		})(s)
+	})
 	sim.Io.On("connection", sim.handleConnection)
 	return sim.Io
 }
