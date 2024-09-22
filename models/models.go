@@ -20,6 +20,10 @@ func GetAllModels() []interface{} {
 
 type User struct {
 	gorm.Model
+	Username  string `gorm:"uniqueIndex"`
+	Password  string
+	Email     string
+	SecretKey string `gorm:"type:varchar(64)"` // 添加这一行
 	WechatID  string `gorm:"uniqueIndex;not null"`
 	Name      string
 	Phone     map[string]string `gorm:"type:json"`

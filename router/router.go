@@ -31,7 +31,6 @@ func SetupAndRun(cfg *config.Config) {
 	http.Handle("/socket.io/", baseInstance.IoManager.ServeHandler(nil))
 
 	// 设置 HTTP 处理程序
-
 	httpHandler.SetupHTTPHandlers(baseInstance)
 
 	// 设置 STUN 服务器

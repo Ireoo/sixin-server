@@ -254,6 +254,9 @@ func SetupHTTPHandlers(b *base.Base) {
 
 	// 静态文件服务
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+
+	// 添加用户注册路由
+	http.HandleFunc("/register", RegisterUser(b))
 }
 
 func (hm *HTTPManager) handleRoomMembers(w http.ResponseWriter, r *http.Request) {
@@ -343,4 +346,29 @@ func (hm *HTTPManager) handleSetRoomPrivacy(w http.ResponseWriter, r *http.Reque
 
 	err := hm.dbManager.SetRoomPrivacy(roomRequest.UserID, roomRequest.RoomID, roomRequest.IsPrivate)
 	sendJSONResponse(w, map[string]string{"message": "房间隐私设置更新成功"}, err)
+}
+
+func RegisterUser(b *base.Base) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var userData *models.User
+
+		if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		err := b.DbManager.CreateUser(userData)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"message": "User registered successfully", "id": fmt.Sprintf("%d", userData.ID)})
+	}
 }

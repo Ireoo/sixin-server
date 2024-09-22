@@ -1,10 +1,12 @@
 package base
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
+	random "math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,10 +16,24 @@ import (
 	"github.com/Ireoo/sixin-server/config"
 	"github.com/Ireoo/sixin-server/database"
 	"github.com/Ireoo/sixin-server/logger"
+	"github.com/Ireoo/sixin-server/models"
 	"github.com/gorilla/websocket"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
+
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+
+	"golang.org/x/crypto/pbkdf2"
 )
+
+const currentVersion byte = 1 // 或其他适当的版本号
+
+const versionSize = 1 // 添加这行
 
 type Base struct {
 	Folder        string
@@ -133,7 +149,7 @@ func (mh *Base) DownloadFile(url, outputPath string) error {
 }
 
 func (mh *Base) GenerateVerificationCode() string {
-	return fmt.Sprintf("%06d", rand.Intn(900000)+100000)
+	return fmt.Sprintf("%06d", random.Intn(900000)+100000)
 }
 
 func (mh *Base) SendMessage(text, msg string) {
@@ -256,4 +272,183 @@ func (b *Base) SendMessageToUsers(message interface{}, userIDs ...uint) {
 			return true
 		})
 	}
+}
+
+// 加密方法枚举
+const (
+	EncryptAES = iota
+	EncryptDES
+	EncryptRC4
+	EncryptBase64
+)
+
+const (
+	saltSize   = 32
+	iterations = 10000
+	keySize    = 32
+	layerCount = 5
+)
+
+// 洋葱加密
+func (b *Base) OnionEncrypt(data []byte, masterKey []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	buf.WriteByte(currentVersion)
+	salt := make([]byte, saltSize)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	buf.Write(salt)
+
+	encryptedData := data
+	for i := 0; i < layerCount; i++ {
+		layerKey := deriveKey(masterKey, salt, i)
+		var err error
+		encryptedData, err = b.encryptAES(encryptedData, layerKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+	buf.Write(encryptedData)
+
+	// HMAC 计算
+	h := hmac.New(sha256.New, masterKey)
+	h.Write(buf.Bytes()[versionSize+saltSize:])
+	buf.Write(h.Sum(nil))
+
+	return buf.Bytes(), nil
+}
+
+// 洋葱解密
+func (b *Base) OnionDecrypt(data []byte, masterKey []byte) ([]byte, error) {
+	if len(data) < versionSize+saltSize {
+		return nil, fmt.Errorf("数据太短")
+	}
+
+	version, salt := data[:versionSize], data[versionSize:versionSize+saltSize]
+
+	if version[0] != currentVersion {
+		return nil, fmt.Errorf("不支持的版本")
+	}
+
+	macSize := sha256.Size
+	if len(data) < versionSize+saltSize+macSize {
+		return nil, fmt.Errorf("数据太短")
+	}
+
+	encryptedData, mac := data[versionSize+saltSize:len(data)-macSize], data[len(data)-macSize:]
+
+	// 验证 HMAC
+	h := hmac.New(sha256.New, masterKey)
+	h.Write(encryptedData)
+	expectedMac := h.Sum(nil)
+	if subtle.ConstantTimeCompare(mac, expectedMac) != 1 {
+		return nil, fmt.Errorf("MAC 验证失败")
+	}
+
+	for i := layerCount - 1; i >= 0; i-- {
+		layerKey := deriveKey(masterKey, salt, i)
+		var err error
+		encryptedData, err = b.decryptAES(encryptedData, layerKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return encryptedData, nil
+}
+
+// 改进的 AES 加密
+func (b *Base) encryptAES(data, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = rand.Read(nonce); err != nil {
+		return nil, err
+	}
+
+	return gcm.Seal(nonce, nonce, data, nil), nil
+}
+
+// 改进的 AES 解密
+func (b *Base) decryptAES(data, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, fmt.Errorf("密文太短")
+	}
+
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	return gcm.Open(nil, nonce, ciphertext, nil)
+}
+
+// PKCS5Padding 填充
+func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
+	padding := blockSize - len(ciphertext)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(ciphertext, padtext...)
+}
+
+// PKCS5UnPadding 去除填充
+func PKCS5UnPadding(origData []byte) []byte {
+	length := len(origData)
+	unpadding := int(origData[length-1])
+	return origData[:(length - unpadding)]
+}
+
+func deriveKey(masterKey, salt []byte, iteration int) []byte {
+	return pbkdf2.Key(masterKey, salt, iteration+1, 32, sha256.New)
+}
+
+func (b *Base) GetUserSecretKey(userID uint) ([]byte, error) {
+	var user models.User
+	if err := b.DbManager.DB.Where("id = ?", userID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	secretKey, err := base64.StdEncoding.DecodeString(user.SecretKey)
+	if err != nil {
+		return nil, err
+	}
+	return secretKey, nil
+}
+
+func (b *Base) OnionEncryptForUser(data []byte, userID uint) ([]byte, error) {
+	userKey, err := b.GetUserSecretKey(userID)
+	if err != nil {
+		return nil, err
+	}
+	return b.OnionEncrypt(data, userKey)
+}
+
+func (b *Base) OnionDecryptForUser(data []byte, userID uint) ([]byte, error) {
+	userKey, err := b.GetUserSecretKey(userID)
+	if err != nil {
+		return nil, err
+	}
+	return b.OnionDecrypt(data, userKey)
+}
+
+func (b *Base) GenerateSecretKey() (string, error) {
+	key := make([]byte, 32) // 256位密钥
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(key), nil
 }
