@@ -124,9 +124,38 @@ func (wsm *WebSocketManager) handleMessage(msgBytes []byte, userID uint) {
 		wsm.handleUpdateRoomAlias(genericMessage.Data, userID)
 	case "setRoomPrivacy":
 		wsm.handleSetRoomPrivacy(genericMessage.Data, userID)
+	case "getRoomAliasByUsers":
+		wsm.handleGetRoomAliasByUsers(genericMessage.Data, userID)
 	default:
 		log.Printf("未知的消息类型: %s", genericMessage.Type)
 	}
+}
+
+// 新增函数处理获取房间别名
+func (wsm *WebSocketManager) handleGetRoomAliasByUsers(data json.RawMessage, userID uint) {
+	var roomID uint
+	if err := json.Unmarshal(data, &roomID); err != nil {
+		log.Printf("解析房间ID失败: %v", err)
+		return
+	}
+
+	aliases, err := wsm.baseInstance.DbManager.GetRoomAliasByUsers(userID, roomID)
+	if err != nil {
+		log.Printf("获取房间别名失败: %v", err)
+		return
+	}
+
+	response := map[string]interface{}{
+		"type":    "getRoomByUsers",
+		"aliases": aliases,
+	}
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("序列化响应失败: %v", err)
+		return
+	}
+
+	wsm.sendMessageToUsers(responseJSON, userID)
 }
 
 // 新增函数处理聊天消息

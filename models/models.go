@@ -1,8 +1,6 @@
 package models
 
 import (
-	"time"
-
 	"gorm.io/gorm"
 )
 
@@ -39,14 +37,11 @@ type User struct {
 	// 定义与 Room 的多对多关系
 	Rooms []*Room `gorm:"many2many:user_rooms;"`
 	// 定义与 Message 的一对多关系
-	Messages  []Message `gorm:"foreignKey:TalkerID"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Messages []Message `gorm:"foreignKey:TalkerID"`
 }
 
 type Room struct {
 	gorm.Model
-	RoomID  string `gorm:"uniqueIndex;not null"`
 	Name    string
 	OwnerID uint
 	Owner   User   `gorm:"foreignKey:OwnerID"`
@@ -55,20 +50,18 @@ type Room struct {
 	// 定义管理员与用户的多对多关系
 	Admins []*User `gorm:"many2many:room_admins;"`
 	// 定义与 Message 的一对多关系
-	Messages  []Message `gorm:"foreignKey:RoomID"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Messages []Message `gorm:"foreignKey:RoomID"`
 }
 
 type RoomByUser struct {
 	gorm.Model
-	UserID    uint `gorm:"not null"`
-	RoomID    uint `gorm:"not null"`
-	Alias     string
-	User      *User     `gorm:"foreignKey:UserID"`
-	Room      *Room     `gorm:"foreignKey:RoomID"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	UserID   uint `gorm:"not null"`
+	TargetID uint `gorm:"not null"`
+	RoomID   uint `gorm:"not null"`
+	Alias    string
+	User     *User `gorm:"foreignKey:UserID"`
+	Target   *User `gorm:"foreignKey:TargetID"`
+	Room     *Room `gorm:"foreignKey:RoomID"`
 }
 
 type Message struct {
@@ -82,8 +75,6 @@ type Message struct {
 	Timestamp     int64                  `json:"timestamp"`
 	Type          int                    `json:"type"`
 	MentionIDList []uint                 `gorm:"type:json" json:"mentionIdList"`
-	CreatedAt     time.Time              `json:"createdAt"`
-	UpdatedAt     time.Time              `json:"updatedAt"`
 }
 
 // 新增 UserFriend 结构体
@@ -94,9 +85,7 @@ type UserFriend struct {
 	User      *User `gorm:"foreignKey:UserID"`
 	Friend    *User `gorm:"foreignKey:FriendID"`
 	Alias     string
-	IsPrivate bool      `gorm:"default:false"` // 新增字段：是否为私密好友
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	IsPrivate bool `gorm:"default:false"` // 新增字段：是否为私密好友
 }
 
 // 新增 UserRoom 结构体
@@ -107,12 +96,11 @@ type UserRoom struct {
 	User      *User `gorm:"foreignKey:UserID"`
 	Room      *Room `gorm:"foreignKey:RoomID"`
 	Alias     string
-	IsPrivate bool      `gorm:"default:false"` // 新增字段：是否为私密房间
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	IsPrivate bool `gorm:"default:false"` // 新增字段：是否为私密房间
 }
 
 type FullMessage struct {
+	gorm.Model
 	Message
 	Talker   *User `json:"talker,omitempty"`
 	Listener *User `json:"listener,omitempty"`

@@ -95,6 +95,8 @@ func (hm *HTTPManager) HandleRoutes() http.HandlerFunc {
 					hm.handleRoomMembers(w, r)
 				case "/api/room-privacy":
 					hm.handleSetRoomPrivacy(w, r)
+				case "/api/getRoomAliasByUsers":
+					hm.handleGetRoomAliasByUsers(w, r)
 				default:
 					if strings.HasPrefix(r.URL.Path, "/api/users/") {
 						hm.handleUserByID(w, r)
@@ -329,13 +331,13 @@ func (hm *HTTPManager) handleUpdateRoomMember(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	err := hm.dbManager.UpdateRoomMemberAlias(fmt.Sprint(roomRequest.UserID), fmt.Sprint(roomRequest.RoomID), roomRequest.Alias)
+	err := hm.dbManager.UpdateRoomMemberAlias(roomRequest.UserID, roomRequest.RoomID, roomRequest.Alias)
 	if err != nil {
 		sendJSONResponse(w, map[string]string{"message": "更新房间成员别名失败"}, err)
 		return
 	}
 
-	err = hm.dbManager.SetRoomMemberPrivacy(fmt.Sprint(roomRequest.UserID), fmt.Sprint(roomRequest.RoomID), roomRequest.IsPrivate)
+	err = hm.dbManager.SetRoomMemberPrivacy(roomRequest.UserID, roomRequest.RoomID, roomRequest.IsPrivate)
 	sendJSONResponse(w, map[string]string{"message": "房间成员信息更新成功"}, err)
 }
 
@@ -470,4 +472,37 @@ func (hm *HTTPManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSONResponse(w, map[string]string{"token": tokenString}, nil)
+}
+
+func (hm *HTTPManager) handleGetRoomAliasByUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		return
+	}
+
+	// 从 auth 中获取 userID
+	userID, ok := r.Context().Value("userID").(uint)
+	if !ok {
+		sendJSONResponse(w, nil, fmt.Errorf("无法获取用户ID"))
+		return
+	}
+
+	roomIDStr := r.URL.Query().Get("room_id")
+	if roomIDStr == "" {
+		sendJSONResponse(w, nil, fmt.Errorf("缺少房间ID"))
+		return
+	}
+	roomID, err := strconv.ParseUint(roomIDStr, 10, 32)
+	if err != nil {
+		sendJSONResponse(w, nil, fmt.Errorf("无效的房间ID: %s", roomIDStr))
+		return
+	}
+
+	aliases, err := hm.baseInstance.DbManager.GetRoomAliasByUsers(userID, uint(roomID))
+	if err != nil {
+		sendJSONResponse(w, nil, err)
+		return
+	}
+
+	sendJSONResponse(w, aliases, nil)
 }

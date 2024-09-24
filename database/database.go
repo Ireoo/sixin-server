@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/driver/sqlserver"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DatabaseType string
@@ -205,12 +206,14 @@ func (dm *DatabaseManager) GetFullMessage(id uint) (models.FullMessage, error) {
 	return fullMessage, err
 }
 
-func (dm *DatabaseManager) GetChats() ([]models.Message, error) {
+func (dm *DatabaseManager) GetChats(userID uint) ([]models.Message, error) {
 	var messages []models.Message
-	err := dm.DB.Preload("Talker").Preload("Listener").Preload("Room").
+	err := dm.DB.Model(&models.Message{}).
+		Preload("Talker").Preload("Listener").Preload("Room").
+		Joins("LEFT JOIN user_rooms ON messages.room_id = user_rooms.room_id AND user_rooms.user_id = ?", userID).
+		Where("messages.talker_id = ? OR messages.listener_id = ? OR user_rooms.user_id IS NOT NULL", userID, userID).
 		Order("timestamp DESC").Limit(400).Find(&messages).Error
 	return messages, err
-
 }
 
 func (dm *DatabaseManager) GetMessageByID(msgID string) (*models.Message, error) {
@@ -278,35 +281,56 @@ func (dm *DatabaseManager) RemoveUserFromRoom(userID, roomID uint) error {
 
 func (dm *DatabaseManager) GetRoomMembers(roomID uint) ([]models.User, error) {
 	var members []models.User
-	err := dm.DB.Joins("JOIN user_rooms ON users.id = user_rooms.user_id").
-		Where("user_rooms.room_id = ?", roomID).
+	err := dm.DB.Model(&models.User{}).
+		Joins("JOIN user_rooms ON users.id = user_rooms.user_id").
+		Where("user_rooms.id = ?", roomID).
 		Find(&members).Error
 	return members, err
 }
 
 func (dm *DatabaseManager) UpdateRoomAlias(userID, roomID uint, newAlias string) error {
-	return dm.DB.Model(&models.UserRoom{}).
-		Where("user_id = ? AND room_id = ?", userID, roomID).
-		Update("alias", newAlias).Error
+	return dm.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"alias"}),
+	}).Create(&models.UserRoom{
+		UserID: userID,
+		RoomID: roomID,
+		Alias:  newAlias,
+	}).Error
 }
 
 func (dm *DatabaseManager) SetRoomPrivacy(userID, roomID uint, isPrivate bool) error {
-	return dm.DB.Model(&models.UserRoom{}).
-		Where("user_id = ? AND room_id = ?", userID, roomID).
-		Update("is_private", isPrivate).Error
+	return dm.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"is_private"}),
+	}).Create(&models.UserRoom{
+		UserID:    userID,
+		RoomID:    roomID,
+		IsPrivate: isPrivate,
+	}).Error
 }
 
-func (dm *DatabaseManager) UpdateRoomMemberAlias(userID, roomID, alias string) error {
-	return dm.DB.Model(&models.UserRoom{}).
-		Where("user_id = ? AND room_id = ?", userID, roomID).
-		Update("alias", alias).Error
+func (dm *DatabaseManager) UpdateRoomMemberAlias(userID, roomID uint, alias string) error {
+	return dm.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"alias"}),
+	}).Create(&models.UserRoom{
+		UserID: userID,
+		RoomID: roomID,
+		Alias:  alias,
+	}).Error
 }
 
 // 新增的方法
-func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID string, isPrivate bool) error {
-	return dm.DB.Model(&models.UserRoom{}).
-		Where("user_id = ? AND room_id = ?", userID, roomID).
-		Update("is_private", isPrivate).Error
+func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID uint, isPrivate bool) error {
+	return dm.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"is_private"}),
+	}).Create(&models.UserRoom{
+		UserID:    userID,
+		RoomID:    roomID,
+		IsPrivate: isPrivate,
+	}).Error
 }
 
 // 辅助函数：生成密钥
@@ -322,7 +346,7 @@ func generateSecretKey() (string, error) {
 // 用户登录验证方法
 func (dm *DatabaseManager) AuthenticateUser(username, password string) (*models.User, error) {
 	var user models.User
-	if err := dm.DB.Where("username = ?", username).First(&user).Error; err != nil {
+	if err := dm.DB.Model(&models.User{}).Where("username = ?", username).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("用户不存在")
 	}
 
@@ -340,7 +364,7 @@ func (dm *DatabaseManager) UpdateUserProfile(userID uint, updates map[string]int
 
 func (dm *DatabaseManager) GetUserByUsername(username string) (*models.User, error) {
 	var user models.User
-	err := dm.DB.Where("username = ?", username).First(&user).Error
+	err := dm.DB.Model(&models.User{}).Where("username = ?", username).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -352,7 +376,7 @@ func (dm *DatabaseManager) GetUserByUsername(username string) (*models.User, err
 
 func (dm *DatabaseManager) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
-	err := dm.DB.Where("email = ?", email).First(&user).Error
+	err := dm.DB.Model(&models.User{}).Where("email = ?", email).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -364,7 +388,7 @@ func (dm *DatabaseManager) GetUserByEmail(email string) (*models.User, error) {
 
 func (dm *DatabaseManager) GetUserByWechatID(wechatID string) (*models.User, error) {
 	var user models.User
-	err := dm.DB.Where("wechat_id = ?", wechatID).First(&user).Error
+	err := dm.DB.Model(&models.User{}).Where("wechat_id = ?", wechatID).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
@@ -372,4 +396,33 @@ func (dm *DatabaseManager) GetUserByWechatID(wechatID string) (*models.User, err
 		return nil, err
 	}
 	return &user, nil
+}
+
+// 新增的方法
+func (dm *DatabaseManager) GetRoomAliasByUsers(userID, roomID uint) (map[uint]string, error) {
+	var userRooms []models.UserRoom
+	aliases := make(map[uint]string)
+
+	// 修正查询条件并添加 roomID 过滤
+	if err := dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND id = ?", userID, roomID).
+		Find(&userRooms).Error; err != nil {
+		return nil, err
+	}
+
+	for _, userRoom := range userRooms {
+		aliases[userRoom.UserID] = userRoom.Alias
+	}
+
+	return aliases, nil
+}
+
+func (dm *DatabaseManager) CheckUserRoom(userID, roomID uint) error {
+	var userRoom models.UserRoom
+	if err := dm.DB.Model(&models.UserRoom{}).
+		Where("user_id = ? AND id = ?", userID, roomID).
+		First(&userRoom).Error; err != nil {
+		return err
+	}
+	return nil
 }
