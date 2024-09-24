@@ -426,3 +426,9 @@ func (dm *DatabaseManager) CheckUserRoom(userID, roomID uint) error {
 	}
 	return nil
 }
+
+func (dm *DatabaseManager) GetRooms(userID uint) ([]models.Room, error) {
+	var rooms []models.Room
+	err := dm.DB.Model(&models.Room{}).Where("user_id = ?", userID).Find(&rooms).Error
+	return rooms, err
+}

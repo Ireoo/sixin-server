@@ -9,7 +9,12 @@ import (
 )
 
 func (sim *SocketIOManager) handleGetRooms(client *socket.Socket, args ...any) {
-	rooms, err := sim.baseInstance.DbManager.GetAllRooms()
+	userID, err := sim.getUserIDFromSocket(client)
+	if err != nil {
+		client.Emit("error", "获取用户ID失败: "+err.Error())
+		return
+	}
+	rooms, err := sim.baseInstance.DbManager.GetRooms(userID)
 	if err != nil {
 		client.Emit("error", err.Error())
 		return
