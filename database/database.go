@@ -130,9 +130,18 @@ func (dm *DatabaseManager) GetAllUsers() ([]models.User, error) {
 	return users, err
 }
 
-func (dm *DatabaseManager) GetUserByID(id uint) (models.User, error) {
+func (dm *DatabaseManager) GetUserByID(userId, id uint) (models.User, error) {
+	// 根据userId获取用户好友id信息
+	var userFriends []models.UserFriend
+	err := dm.DB.Model(&models.UserFriend{}).Where("user_id = ?", userId).Find(&userFriends).Error
+	if err != nil {
+		return models.User{}, err
+	}
+
+	// 根据好友id获取用户信息
 	var user models.User
-	err := dm.DB.First(&user, id).Error
+	err = dm.DB.Model(&models.User{}).Where("id IN (?)", userFriends).Find(&user).Error
+
 	return user, err
 }
 
@@ -159,12 +168,57 @@ func (dm *DatabaseManager) CreateUser(user *models.User) error {
 	return nil
 }
 
-func (dm *DatabaseManager) UpdateUser(id uint, updatedUser models.User) error {
-	return dm.DB.Model(&models.User{}).Where("id = ?", id).Updates(updatedUser).Error
+func (dm *DatabaseManager) UpdateUser(userId, id uint, updatedUser models.UserFriend) error {
+	// 根据userId获取用户好友id信息,然后修改用户这个好友信息
+	var userFriends []models.UserFriend
+	err := dm.DB.Model(&models.UserFriend{}).Where("user_id = ?", userId).Find(&userFriends).Error
+	if err != nil {
+		return err
+	}
+	// 用 updatedUser 更新 userFriends 中的 friendID 对应的用户信息
+	for _, userFriend := range userFriends {
+		if userFriend.FriendID == updatedUser.FriendID {
+			userFriend.Alias = updatedUser.Alias
+			userFriend.IsPrivate = updatedUser.IsPrivate
+			err = dm.DB.Model(&models.UserFriend{}).Where("user_id = ? AND friend_id = ?", userId, updatedUser.FriendID).Updates(userFriend).Error
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (dm *DatabaseManager) UpdateUserOwn(userId uint, updatedUser *models.User) error {
+	// 先通过userid获取自己的信息
+	var existingUser models.User
+	if err := dm.DB.First(&existingUser, userId).Error; err != nil {
+		return fmt.Errorf("获取用户信息失败: %w", err)
+	}
+
+	// 删除 updatedUser 中的敏感信息
+	updatedUser.ID = userId
+	updatedUser.Password = ""  // 不允许通过此方法更新密码
+	updatedUser.SecretKey = "" // 不允许更新密钥
+
+	// 根据userId修改用户自己的信息updatedUser
+	result := dm.DB.Model(&existingUser).Updates(updatedUser)
+	if result.Error != nil {
+		return fmt.Errorf("更新用户信息失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("未找到ID为%d的用户", userId)
+	}
+	return nil
 }
 
 func (dm *DatabaseManager) DeleteUser(id uint) error {
 	return dm.DB.Delete(&models.User{}, id).Error
+}
+
+func (dm *DatabaseManager) DeleteUserFriend(userID, friendID uint) error {
+	return dm.DB.Where("user_id = ? AND friend_id = ?", userID, friendID).Delete(&models.UserFriend{}).Error
 }
 
 // 户间相关操作
@@ -174,22 +228,77 @@ func (dm *DatabaseManager) GetAllRooms() ([]models.Room, error) {
 	return rooms, err
 }
 
-func (dm *DatabaseManager) GetRoomByID(id uint) (models.Room, error) {
+func (dm *DatabaseManager) GetRoomByID(userId, id uint) (models.Room, error) {
+	// 获取userid
+	var userRooms []models.UserRoom
+	err := dm.DB.Model(&models.UserRoom{}).Where("user_id = ? AND room_id = ?", userId, id).Find(&userRooms).Error
+	if err != nil {
+		return models.Room{}, err
+	}
+
+	// 获取room信息
 	var room models.Room
-	err := dm.DB.Preload("Owner").Preload("Members").First(&room, id).Error
-	return room, err
+	err = dm.DB.Model(&models.Room{}).Where("id = ?", id).First(&room).Error
+	if err != nil {
+		return models.Room{}, err
+	}
+
+	return room, nil
 }
 
 func (dm *DatabaseManager) CreateRoom(room *models.Room) error {
 	return dm.DB.Create(room).Error
 }
 
-func (dm *DatabaseManager) UpdateRoom(id uint, updatedRoom models.Room) error {
-	return dm.DB.Model(&models.Room{}).Where("id = ?", id).Updates(updatedRoom).Error
+func (dm *DatabaseManager) UpdateRoom(userId, id uint, updatedRoom models.UserRoom) error {
+	// 根据userid获取用户房间id信息,然后修改用户这个房间信息
+	var userRooms []models.UserRoom
+	err := dm.DB.Model(&models.UserRoom{}).Where("user_id = ?", userId).Find(&userRooms).Error
+	if err != nil {
+		return err
+	}
+	// 用 updatedUser 更新 userFriends 中的 friendID 对应的用户信息
+	for _, userRoom := range userRooms {
+		if userRoom.RoomID == id {
+			userRoom.Alias = updatedRoom.Alias
+			userRoom.IsPrivate = updatedRoom.IsPrivate
+			err = dm.DB.Model(&models.UserRoom{}).Where("user_id = ? AND room_id = ?", userId, id).Updates(userRoom).Error
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
-func (dm *DatabaseManager) DeleteRoom(id uint) error {
-	return dm.DB.Delete(&models.Room{}, id).Error
+func (dm *DatabaseManager) UpdateRoomByOwner(userId, id uint, updatedRoom models.Room) error {
+	// 根据userid是ownerid是否是这个房间的管理者，如果是就修改用户这个房间信息
+	var room models.Room
+	err := dm.DB.Model(&models.Room{}).Where("owner_id = ? AND id = ?", userId, id).First(&room).Error
+	if err != nil {
+		return err
+	}
+
+	updatedRoom.OwnerID = userId
+	updatedRoom.Members = room.Members
+
+	return dm.DB.Model(&models.Room{}).Where("owner_id = ? AND id = ?", userId, id).Updates(updatedRoom).Error
+}
+
+func (dm *DatabaseManager) DeleteRoom(userId, id uint) error {
+	// 根据userid获取用户房间id信息,然后删除用户这个房间信息
+	var userRooms []models.UserRoom
+	err := dm.DB.Model(&models.UserRoom{}).Where("user_id = ?", userId).Find(&userRooms).Error
+	if err != nil {
+		return err
+	}
+	for _, userRoom := range userRooms {
+		if userRoom.RoomID == id {
+			return dm.DB.Delete(&models.UserRoom{}, userRoom.ID).Error
+		}
+	}
+	return nil
 }
 
 // 消息相关操作
@@ -431,4 +540,10 @@ func (dm *DatabaseManager) GetRooms(userID uint) ([]models.Room, error) {
 	var rooms []models.Room
 	err := dm.DB.Model(&models.Room{}).Where("user_id = ?", userID).Find(&rooms).Error
 	return rooms, err
+}
+
+func (dm *DatabaseManager) GetUsers(userID uint) ([]models.User, error) {
+	var users []models.User
+	err := dm.DB.Model(&models.User{}).Where("id = ?", userID).Find(&users).Error
+	return users, err
 }

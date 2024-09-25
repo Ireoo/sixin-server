@@ -22,7 +22,7 @@ func (sim *SocketIOManager) handleUpdateUser(client *socket.Socket, args ...any)
 		return
 	}
 
-	userIDUint, err := sim.getUserIDFromSocket(client)
+	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
 		client.Emit("error", "userID 类型转换失败")
 		return
@@ -34,7 +34,7 @@ func (sim *SocketIOManager) handleUpdateUser(client *socket.Socket, args ...any)
 		return
 	}
 
-	if err := sim.baseInstance.DbManager.UpdateUser(userIDUint, updatedUser); err != nil {
+	if err := sim.baseInstance.DbManager.UpdateUserOwn(userID, &updatedUser); err != nil {
 		client.Emit("error", "更新用户失败: "+err.Error())
 		return
 	}
@@ -74,7 +74,7 @@ func (sim *SocketIOManager) handleAddFriend(client *socket.Socket, args ...any) 
 	}
 	friendID, ok := args[0].(uint)
 	if !ok {
-		client.Emit("error", "userID 类型转换失败")
+		client.Emit("error", "friendID 类型转换失败")
 		return
 	}
 

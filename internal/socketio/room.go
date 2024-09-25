@@ -110,7 +110,7 @@ func (sim *SocketIOManager) handleUpdateRoom(client *socket.Socket, args ...any)
 		return
 	}
 
-	if err := sim.baseInstance.DbManager.UpdateRoom(updatedRoom.ID, updatedRoom); err != nil {
+	if err := sim.baseInstance.DbManager.UpdateRoomByOwner(userID, updatedRoom.ID, updatedRoom); err != nil {
 		client.Emit("error", "更新房间失败")
 		return
 	}
@@ -142,7 +142,7 @@ func (sim *SocketIOManager) handleDeleteRoom(client *socket.Socket, args ...any)
 		return
 	}
 
-	if err := sim.baseInstance.DbManager.DeleteRoom(uint(roomIDUint)); err != nil {
+	if err := sim.baseInstance.DbManager.DeleteRoom(userID, uint(roomIDUint)); err != nil {
 		client.Emit("error", "删除房间失败")
 		return
 	}
