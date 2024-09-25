@@ -203,7 +203,7 @@ func (dm *DatabaseManager) UpdateUserOwn(userId uint, updatedUser *models.User) 
 	updatedUser.SecretKey = "" // 不允许更新密钥
 
 	// 根据userId修改用户自己的信息updatedUser
-	result := dm.DB.Model(&existingUser).Updates(updatedUser)
+	result := dm.DB.Model(existingUser).Updates(updatedUser)
 	if result.Error != nil {
 		return fmt.Errorf("更新用户信息失败: %w", result.Error)
 	}
@@ -432,7 +432,7 @@ func (dm *DatabaseManager) UpdateRoomMemberAlias(userID, roomID uint, alias stri
 
 // 新增的方法
 func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID uint, isPrivate bool) error {
-	return dm.DB.Clauses(clause.OnConflict{
+	return dm.DB.Model(&models.UserRoom{}).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"is_private"}),
 	}).Create(&models.UserRoom{
@@ -444,7 +444,7 @@ func (dm *DatabaseManager) SetRoomMemberPrivacy(userID, roomID uint, isPrivate b
 
 // 辅助函数：生成密钥
 func generateSecretKey() (string, error) {
-	key := make([]byte, 32) // 256位密钥
+	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	if err != nil {
 		return "", err
@@ -546,4 +546,17 @@ func (dm *DatabaseManager) GetUsers(userID uint) ([]models.User, error) {
 	var users []models.User
 	err := dm.DB.Model(&models.User{}).Where("id = ?", userID).Find(&users).Error
 	return users, err
+}
+
+// 用户加入房间的方法
+func (dm *DatabaseManager) JoinRoom(userID uint, roomID uint, alias string) error {
+	// 新增 conflicts 处理，解决重复插入数据问题
+	return dm.DB.Model(&models.UserRoom{}).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}, {Name: "room_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"alias"}),
+	}).Create(&models.UserRoom{
+		UserID: userID,
+		RoomID: roomID,
+		Alias:  alias,
+	}).Error
 }
