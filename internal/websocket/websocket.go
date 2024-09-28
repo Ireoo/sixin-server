@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"sync"
 
 	"github.com/Ireoo/sixin-server/base"
-	"github.com/Ireoo/sixin-server/internal/middleware"
 	"github.com/Ireoo/sixin-server/models"
 	"github.com/gorilla/websocket"
 )
@@ -33,20 +33,20 @@ func NewWebSocketManager(base *base.Base) *WebSocketManager {
 }
 
 func (wsm *WebSocketManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			// 处理错误
-			return
-		}
-		defer conn.Close()
+	// 移除身份验证中间件
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket升级失败: %v", err)
+		return
+	}
+	defer conn.Close()
 
-		// 获取用户ID
-		userID := r.Context().Value("UserID").(uint)
+	// 由于没有身份验证，我们需要一种方式来识别用户
+	// 这里使用一个简单的随机ID作为示例
+	userID := uint(rand.Uint32())
 
-		// 处理WebSocket连接
-		wsm.handleConnection(conn, userID, r)
-	})).ServeHTTP(w, r)
+	// 处理WebSocket连接
+	wsm.handleConnection(conn, userID, r)
 }
 
 func (wsm *WebSocketManager) handleConnection(conn *websocket.Conn, userID uint, r *http.Request) {
@@ -58,6 +58,14 @@ func (wsm *WebSocketManager) handleConnection(conn *websocket.Conn, userID uint,
 	userConnType := fmt.Sprintf("user_%d", userID)
 	wsm.addConnection(userConnType, conn)
 	defer wsm.removeConnection(userConnType, conn)
+
+	// 发送一个欢迎消息，包含分配的userID
+	welcomeMsg := map[string]interface{}{
+		"type":   "welcome",
+		"userID": userID,
+	}
+	welcomeMsgJSON, _ := json.Marshal(welcomeMsg)
+	conn.WriteMessage(websocket.TextMessage, welcomeMsgJSON)
 
 	for {
 		_, message, err := conn.ReadMessage()
