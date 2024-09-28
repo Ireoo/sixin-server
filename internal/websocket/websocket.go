@@ -33,6 +33,7 @@ func NewWebSocketManager(base *base.Base) *WebSocketManager {
 }
 
 func (wsm *WebSocketManager) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Printf("收到WebSocket连接请求: %s", r.URL)
 	// 移除身份验证中间件
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
