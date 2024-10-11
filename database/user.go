@@ -124,3 +124,11 @@ func (dm *DatabaseManager) GetUserByID(userId, id uint) (models.User, error) {
 
 	return user, err
 }
+
+func (dm *DatabaseManager) GetUserInfo(userId uint) (models.User, error) {
+	// 根据好友id获取用户信息
+	var user models.User
+	err := dm.DB.Model(&models.User{}).Where("id = ?", userId).Find(&user).Error
+
+	return user, err
+}

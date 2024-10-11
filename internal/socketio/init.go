@@ -12,21 +12,36 @@ import (
 	"github.com/zishang520/socket.io/v2/socket"
 )
 
-var socketData = struct {
+type socketData struct {
 	sync.RWMutex
 	data map[*socket.Socket]map[string]interface{}
-}{data: make(map[*socket.Socket]map[string]interface{})}
+}
 
-var userSocketMap = struct {
+func newSocketData() *socketData {
+	return &socketData{
+		data: make(map[*socket.Socket]map[string]interface{}),
+	}
+}
+
+type userSocketMap struct {
 	sync.RWMutex
 	data map[uint]*socket.Socket
-}{data: make(map[uint]*socket.Socket)}
+}
+
+func newUserSocketMap() *userSocketMap {
+	return &userSocketMap{
+		data: make(map[uint]*socket.Socket),
+	}
+}
 
 type SocketIOManager struct {
 	Io              *socket.Server
 	baseInstance    *base.Base
 	peerConnections map[string]*webrtc.PeerConnection
 	pcMutex         sync.RWMutex
+
+	userSocketMap *userSocketMap
+	socketData    *socketData
 }
 
 func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
@@ -34,6 +49,8 @@ func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
 		Io:              socket.NewServer(nil, nil),
 		baseInstance:    baseInst,
 		peerConnections: make(map[string]*webrtc.PeerConnection),
+		userSocketMap:   newUserSocketMap(),
+		socketData:      newSocketData(),
 	}
 }
 
@@ -54,14 +71,14 @@ func (sim *SocketIOManager) authMiddleware(next func(*socket.Socket, ...any)) fu
 		}
 
 		// // 初始化自定义属性
-		socketData.Lock()
-		socketData.data[s] = make(map[string]interface{})
-		socketData.data[s]["userID"] = userID
-		socketData.Unlock()
+		sim.socketData.Lock()
+		sim.socketData.data[s] = make(map[string]interface{})
+		sim.socketData.data[s]["userID"] = userID
+		sim.socketData.Unlock()
 
-		userSocketMap.Lock()
-		userSocketMap.data[userID] = s
-		userSocketMap.Unlock()
+		sim.userSocketMap.Lock()
+		sim.userSocketMap.data[userID] = s
+		sim.userSocketMap.Unlock()
 		next(s, args...)
 	}
 }
@@ -132,7 +149,22 @@ func (sim *SocketIOManager) registerClientHandlers(client *socket.Socket) {
 }
 
 func (sim *SocketIOManager) handleSelf(client *socket.Socket, args ...any) {
-	client.Emit("self", sim.baseInstance.Self)
+	// 获取当前用户ID
+	userID, err := sim.getUserIDFromSocket(client)
+	if err != nil {
+		client.Emit("error", "无法获取用户信息")
+		return
+	}
+
+	// 从数据库或缓存中获取用户详细信息
+	userInfo, err := sim.baseInstance.DbManager.GetUserInfo(userID)
+	if err != nil {
+		client.Emit("error", "获取用户信息失败")
+		return
+	}
+
+	// 返回用户信息
+	client.Emit("self", userInfo)
 }
 
 func (sim *SocketIOManager) handleReceive(client *socket.Socket, args ...any) {
@@ -152,9 +184,9 @@ func (sim *SocketIOManager) handleEmail(client *socket.Socket, args ...any) {
 
 func (sim *SocketIOManager) SendMessageToUsers(message interface{}, userIDs ...uint) {
 	for _, userID := range userIDs {
-		userSocketMap.RLock()
-		client, exists := userSocketMap.data[userID]
-		userSocketMap.RUnlock()
+		sim.userSocketMap.RLock()
+		client, exists := sim.userSocketMap.data[userID]
+		sim.userSocketMap.RUnlock()
 
 		if !exists {
 			log.Printf("用户 %d 未找到对应的客户端", userID)
@@ -170,10 +202,10 @@ func (sim *SocketIOManager) SendMessageToUsers(message interface{}, userIDs ...u
 
 // 提取通用的从 socketData 获取 userID 的逻辑
 func (sim *SocketIOManager) getUserIDFromSocket(client *socket.Socket) (uint, error) {
-	socketData.RLock()
-	defer socketData.RUnlock()
+	sim.socketData.RLock()
+	defer sim.socketData.RUnlock()
 
-	userID, ok := socketData.data[client]["userID"].(uint)
+	userID, ok := sim.socketData.data[client]["userID"].(uint)
 	if !ok {
 		return 0, fmt.Errorf("userID 类型转换失败")
 	}
