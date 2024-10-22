@@ -1,7 +1,6 @@
 package router
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -11,7 +10,6 @@ import (
 	httpHandler "github.com/Ireoo/sixin-server/internal/http"
 	"github.com/Ireoo/sixin-server/internal/server"
 	"github.com/Ireoo/sixin-server/internal/socketio"
-	stunServer "github.com/Ireoo/sixin-server/internal/stun"
 	"github.com/Ireoo/sixin-server/internal/websocket"
 	"github.com/Ireoo/sixin-server/logger"
 )
@@ -32,15 +30,6 @@ func SetupAndRun(cfg *config.Config) {
 
 	// 设置 HTTP 处理程序
 	httpHandler.SetupHTTPHandlers(baseInstance)
-
-	// 设置 STUN 服务器
-	go func() {
-		stunAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.StunPort)
-		ctx := context.Background()
-		if err := stunServer.StartSTUNServer(ctx, stunAddress); err != nil {
-			logger.Error("启动 STUN 服务器失败:", err)
-		}
-	}()
 
 	// 设置 WebSocket 路由
 	WebSocketManager := websocket.NewWebSocketManager(baseInstance)
