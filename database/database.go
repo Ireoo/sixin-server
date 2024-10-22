@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/Ireoo/sixin-server/models"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/clickhouse"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -38,45 +37,35 @@ type GormDB struct {
 	DB *gorm.DB
 }
 
-var currentDB Database
-
 // 初始化数据库并应用迁移
-func InitDatabase(dbType DatabaseType, connectionString string) error {
-	var db *gorm.DB
-	var err error
+func InitDatabase(dbType DatabaseType, connectionString string) (*gorm.DB, error) {
+	var dialector gorm.Dialector
 
 	switch dbType {
 	case SQLite:
-		db, err = gorm.Open(sqlite.Open(connectionString), &gorm.Config{})
+		dialector = sqlite.Open(connectionString)
 	case MySQL, TiDB:
-		db, err = gorm.Open(mysql.Open(connectionString), &gorm.Config{})
+		dialector = mysql.Open(connectionString)
 	case Postgres:
-		db, err = gorm.Open(postgres.Open(connectionString), &gorm.Config{})
+		dialector = postgres.Open(connectionString)
 	case SQLServer:
-		db, err = gorm.Open(sqlserver.Open(connectionString), &gorm.Config{})
+		dialector = sqlserver.Open(connectionString)
 	case ClickHouse:
-		db, err = gorm.Open(clickhouse.Open(connectionString), &gorm.Config{})
+		dialector = clickhouse.Open(connectionString)
 	default:
-		return fmt.Errorf("不支持的数据库类型: %s", dbType)
+		return nil, fmt.Errorf("不支持的数据库类型: %s", dbType)
 	}
 
+	db, err := gorm.Open(dialector, &gorm.Config{})
 	if err != nil {
-		return fmt.Errorf("连接数据库失败: %w", err)
+		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
 
-	gormDB := &GormDB{DB: db}
-	currentDB = gormDB
-
-	// 初始化数据表
 	if err := initTables(db); err != nil {
-		return fmt.Errorf("初始化数据表失败: %w", err)
+		return nil, fmt.Errorf("初始化数据表失败: %w", err)
 	}
 
-	return nil
-}
-
-func GetCurrentDB() Database {
-	return currentDB
+	return db, nil
 }
 
 // GormDB 方法实现
@@ -114,12 +103,12 @@ type DatabaseManager struct {
 }
 
 func NewDatabaseManager(dbType DatabaseType, connectionString string) (*DatabaseManager, error) {
-	err := InitDatabase(dbType, connectionString)
+	db, err := InitDatabase(dbType, connectionString)
 	if err != nil {
 		return nil, fmt.Errorf("初始化数据库失败: %w", err)
 	}
-	db := GetCurrentDB()
-	return &DatabaseManager{DB: db.GetDB()}, nil
+	dbManager := &DatabaseManager{DB: db}
+	return dbManager, nil
 }
 
 // 辅助函数：生成密钥

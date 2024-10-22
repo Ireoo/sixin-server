@@ -15,6 +15,7 @@ import (
 	"github.com/Ireoo/sixin-server/internal/middleware"
 	"github.com/Ireoo/sixin-server/models"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -112,9 +113,9 @@ func (hm *HTTPManager) HandleRoutes() http.HandlerFunc {
 }
 
 // 新增一个辅助函数来发送统一格式的 JSON 响应
-func sendJSONResponse(w http.ResponseWriter, data interface{}, err error) {
+func sendJSONResponse(w http.ResponseWriter, status int, data interface{}, err error) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(status)
 
 	response := map[string]interface{}{
 		"success": err == nil,
@@ -125,38 +126,40 @@ func sendJSONResponse(w http.ResponseWriter, data interface{}, err error) {
 		response["error"] = err.Error()
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Println("编码 JSON 响应失败:", err)
+	}
 }
 
 func (hm *HTTPManager) handleUsers(w http.ResponseWriter, r *http.Request) {
-	// 从认证上下文中获取用户ID
 	userID, err := middleware.GetUserIDFromContext(r.Context())
 	if err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("无法获取用户ID: %v", err))
+		sendJSONResponse(w, http.StatusUnauthorized, nil, err)
 		return
 	}
-	switch r.Method {
-	case http.MethodGet:
-		users, err := hm.dbManager.GetUsers(userID)
-		sendJSONResponse(w, users, err)
-	default:
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+
+	users, err := hm.dbManager.GetUsers(userID)
+	if err != nil {
+		sendJSONResponse(w, http.StatusInternalServerError, nil, err)
+		return
 	}
+
+	sendJSONResponse(w, http.StatusOK, users, nil)
 }
 
 func (hm *HTTPManager) handleRooms(w http.ResponseWriter, r *http.Request) {
 	// 从认证上下文中获取用户ID
 	userID, err := middleware.GetUserIDFromContext(r.Context())
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无法获取用户ID"}, err)
+		sendJSONResponse(w, http.StatusUnauthorized, map[string]string{"message": "无法获取用户ID"}, err)
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
 		rooms, err := hm.dbManager.GetRooms(userID)
-		sendJSONResponse(w, rooms, err)
+		sendJSONResponse(w, http.StatusOK, rooms, err)
 	default:
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 	}
 }
 
@@ -164,30 +167,29 @@ func (hm *HTTPManager) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// 从认证上下文中获取用户ID
 	userID, err := middleware.GetUserIDFromContext(r.Context())
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无法获取用户ID"}, err)
+		sendJSONResponse(w, http.StatusUnauthorized, nil, err)
 		return
 	}
-
 	if r.Method != http.MethodPost {
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 		return
 	}
 
 	var message models.Message
 	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "无效的请求数据"}, err)
 		return
 	}
 	message.TalkerID = userID
 	err = hm.dbManager.CreateMessage(&message)
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "保存消息失败"}, err)
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "保存消息失败"}, err)
 		return
 	}
 
 	fullMessage, err := hm.dbManager.GetFullMessage(message.ID)
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "加载完整消息数据失败"}, err)
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "加载完整消息数据失败"}, err)
 		return
 	}
 
@@ -200,41 +202,40 @@ func (hm *HTTPManager) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	hm.baseInstance.SendMessageToUsers(fullMessage, message.TalkerID, recipientID)
 
-	sendJSONResponse(w, fullMessage, nil)
+	sendJSONResponse(w, http.StatusOK, fullMessage, nil)
 }
 
 func (hm *HTTPManager) handleUserByID(w http.ResponseWriter, r *http.Request) {
-	// 从认证上下文中获取用户ID
 	userID, err := middleware.GetUserIDFromContext(r.Context())
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无法获取用户ID"}, err)
+		sendJSONResponse(w, http.StatusUnauthorized, nil, err)
 		return
 	}
 
-	idStr := r.URL.Path[len("/api/users/"):]
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的用户ID"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, nil, err)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
 		user, err := hm.dbManager.GetUserByID(userID, uint(id))
-		sendJSONResponse(w, user, err)
+		sendJSONResponse(w, http.StatusOK, user, err)
 	case http.MethodPut:
 		var updatedUser models.UserFriend
 		if err := json.NewDecoder(r.Body).Decode(&updatedUser); err != nil {
-			sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+			sendJSONResponse(w, http.StatusBadRequest, nil, err)
 			return
 		}
 		err := hm.dbManager.UpdateUser(userID, uint(id), updatedUser)
-		sendJSONResponse(w, updatedUser, err)
+		sendJSONResponse(w, http.StatusOK, updatedUser, err)
 	case http.MethodDelete:
 		err := hm.dbManager.DeleteUserFriend(userID, uint(id))
-		sendJSONResponse(w, map[string]string{"message": "用户删除成功"}, err)
+		sendJSONResponse(w, http.StatusOK, map[string]string{"message": "用户删除成功"}, err)
 	default:
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusMethodNotAllowed, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 	}
 }
 
@@ -242,34 +243,34 @@ func (hm *HTTPManager) handleRoomByID(w http.ResponseWriter, r *http.Request) {
 	// 从认证上下文中获取用户ID
 	userID, err := middleware.GetUserIDFromContext(r.Context())
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无法获取用户ID"}, err)
+		sendJSONResponse(w, http.StatusUnauthorized, map[string]string{"message": "无法获取用户ID"}, err)
 		return
 	}
 
-	idStr := r.URL.Path[len("/api/rooms/"):]
-	id, err := strconv.ParseUint(idStr, 10, 32)
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的房间ID"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, nil, err)
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
 		room, err := hm.dbManager.GetRoomByID(userID, uint(id))
-		sendJSONResponse(w, room, err)
+		sendJSONResponse(w, http.StatusOK, room, err)
 	case http.MethodPut:
 		var updatedRoom models.UserRoom
 		if err := json.NewDecoder(r.Body).Decode(&updatedRoom); err != nil {
-			sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+			sendJSONResponse(w, http.StatusBadRequest, nil, err)
 			return
 		}
 		err := hm.dbManager.UpdateRoom(userID, uint(id), updatedRoom)
-		sendJSONResponse(w, updatedRoom, err)
+		sendJSONResponse(w, http.StatusOK, updatedRoom, err)
 	case http.MethodDelete:
 		err := hm.dbManager.DeleteRoom(userID, uint(id))
-		sendJSONResponse(w, map[string]string{"message": "房间删除成功"}, err)
+		sendJSONResponse(w, http.StatusOK, map[string]string{"message": "房间删除成功"}, err)
 	default:
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 	}
 }
 
@@ -299,7 +300,7 @@ func (hm *HTTPManager) handleRoomMembers(w http.ResponseWriter, r *http.Request)
 	case http.MethodPut:
 		hm.handleUpdateRoomMember(w, r)
 	default:
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 	}
 }
 
@@ -310,14 +311,12 @@ func (hm *HTTPManager) handleAddUserToRoom(w http.ResponseWriter, r *http.Reques
 		Alias     string `json:"alias"`
 		IsPrivate bool   `json:"is_private"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&roomRequest); err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "无效的请求数据"}, err)
 		return
 	}
-
 	err := hm.dbManager.AddUserToRoom(roomRequest.UserID, roomRequest.RoomID, roomRequest.Alias, roomRequest.IsPrivate)
-	sendJSONResponse(w, map[string]string{"message": "用户成功添加到房间"}, err)
+	sendJSONResponse(w, http.StatusOK, map[string]string{"message": "用户成功添加到房间"}, err)
 }
 
 func (hm *HTTPManager) handleRemoveUserFromRoom(w http.ResponseWriter, r *http.Request) {
@@ -325,14 +324,16 @@ func (hm *HTTPManager) handleRemoveUserFromRoom(w http.ResponseWriter, r *http.R
 		UserID uint `json:"user_id"`
 		RoomID uint `json:"room_id"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&roomRequest); err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "无效的请求数据"}, err)
 		return
 	}
-
 	err := hm.dbManager.RemoveUserFromRoom(roomRequest.UserID, roomRequest.RoomID)
-	sendJSONResponse(w, map[string]string{"message": "用户从房间中删除成功"}, err)
+	if err != nil {
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "用户从房间中删除失败"}, err)
+		return
+	}
+	sendJSONResponse(w, http.StatusOK, map[string]string{"message": "用户从房间中删除成功"}, nil)
 }
 
 func (hm *HTTPManager) handleUpdateRoomMember(w http.ResponseWriter, r *http.Request) {
@@ -342,25 +343,27 @@ func (hm *HTTPManager) handleUpdateRoomMember(w http.ResponseWriter, r *http.Req
 		Alias     string `json:"alias"`
 		IsPrivate bool   `json:"is_private"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&roomRequest); err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "无效的请求数据"}, err)
 		return
 	}
 
 	err := hm.dbManager.UpdateRoomMemberAlias(roomRequest.UserID, roomRequest.RoomID, roomRequest.Alias)
 	if err != nil {
-		sendJSONResponse(w, map[string]string{"message": "更新房间成员别名失败"}, err)
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "更新房间成员别名失败"}, err)
 		return
 	}
-
 	err = hm.dbManager.SetRoomMemberPrivacy(roomRequest.UserID, roomRequest.RoomID, roomRequest.IsPrivate)
-	sendJSONResponse(w, map[string]string{"message": "房间成员信息更新成功"}, err)
+	if err != nil {
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "设置房间成员隐私失败"}, err)
+		return
+	}
+	sendJSONResponse(w, http.StatusOK, map[string]string{"message": "房间成员信息更新成功"}, nil)
 }
 
 func (hm *HTTPManager) handleSetRoomPrivacy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		sendJSONResponse(w, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 		return
 	}
 
@@ -369,53 +372,54 @@ func (hm *HTTPManager) handleSetRoomPrivacy(w http.ResponseWriter, r *http.Reque
 		RoomID    uint `json:"room_id"`
 		IsPrivate bool `json:"is_private"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&roomRequest); err != nil {
-		sendJSONResponse(w, map[string]string{"message": "无效的请求数据"}, err)
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "无效的请求数据"}, err)
 		return
 	}
-
 	err := hm.dbManager.SetRoomPrivacy(roomRequest.UserID, roomRequest.RoomID, roomRequest.IsPrivate)
-	sendJSONResponse(w, map[string]string{"message": "房间隐私设置更新成功"}, err)
+	if err != nil {
+		sendJSONResponse(w, http.StatusInternalServerError, map[string]string{"message": "房间隐私设置更新失败"}, err)
+		return
+	}
+	sendJSONResponse(w, http.StatusOK, map[string]string{"message": "房间隐私设置更新成功"}, nil)
 }
 
 func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, map[string]string{"message": "方法不允许"}, fmt.Errorf("方法不允许"))
 		return
 	}
 
 	var userData *models.User
-
 	if err := json.NewDecoder(r.Body).Decode(&userData); err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("无效的请求数据"))
+		sendJSONResponse(w, http.StatusBadRequest, nil, fmt.Errorf("无效的请求数据"))
 		return
 	}
 
 	// 验证必填字段
 	if userData.Username == "" || userData.Password == "" || userData.Email == "" || userData.WechatID == "" {
-		sendJSONResponse(w, nil, fmt.Errorf("用户名、密码、邮箱和微信ID为必填项"))
+		sendJSONResponse(w, http.StatusBadRequest, nil, fmt.Errorf("用户名、密码、邮箱和微信ID为必填项"))
 		return
 	}
 
 	// 检查用户名是否已存在
 	existingUser, _ := hm.baseInstance.DbManager.GetUserByUsername(userData.Username)
 	if existingUser != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("用户名已存在"))
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "用户名已存在"}, nil)
 		return
 	}
 
 	// 检查邮箱是否已存在
 	existingUser, _ = hm.baseInstance.DbManager.GetUserByEmail(userData.Email)
 	if existingUser != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("邮箱已被使用"))
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "邮箱已被使用"}, nil)
 		return
 	}
 
 	// 检查微信ID是否已存在
 	existingUser, _ = hm.baseInstance.DbManager.GetUserByWechatID(userData.WechatID)
 	if existingUser != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("微信ID已被使用"))
+		sendJSONResponse(w, http.StatusBadRequest, map[string]string{"message": "微信ID已被使用"}, nil)
 		return
 	}
 
@@ -431,7 +435,7 @@ func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// 生成密码哈希
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(userData.Password), bcrypt.DefaultCost)
 	if err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("密码加密失败"))
+		sendJSONResponse(w, http.StatusInternalServerError, nil, fmt.Errorf("密码加密失败"))
 		return
 	}
 	newUser.Password = string(hashedPassword)
@@ -439,7 +443,7 @@ func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 	// 创建用户
 	err = hm.baseInstance.DbManager.CreateUser(newUser)
 	if err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("创建用户失败: %v", err))
+		sendJSONResponse(w, http.StatusInternalServerError, nil, fmt.Errorf("创建用户失败: %v", err))
 		return
 	}
 
@@ -447,7 +451,7 @@ func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 	newUser.Password = ""
 	newUser.SecretKey = ""
 
-	sendJSONResponse(w, map[string]interface{}{
+	sendJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"message": "用户注册成功",
 		"user":    newUser,
 	}, nil)
@@ -455,7 +459,7 @@ func (hm *HTTPManager) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (hm *HTTPManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotImplemented, nil, fmt.Errorf("方法不允许"))
 		return
 	}
 
@@ -463,15 +467,14 @@ func (hm *HTTPManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&loginData); err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("无效的请求数据"))
+		sendJSONResponse(w, http.StatusBadRequest, nil, fmt.Errorf("无效的请求数据"))
 		return
 	}
 
 	user, err := hm.baseInstance.DbManager.AuthenticateUser(loginData.Username, loginData.Password)
 	if err != nil {
-		sendJSONResponse(w, nil, err)
+		sendJSONResponse(w, http.StatusInternalServerError, nil, err)
 		return
 	}
 
@@ -484,42 +487,62 @@ func (hm *HTTPManager) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// 使用密钥签名 token（这里使用一个示例密钥，实际应用中应该使用更安全的方式存储和管理密钥）
 	tokenString, err := token.SignedString([]byte("your_secret_key"))
 	if err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("生成 token 失败"))
+		sendJSONResponse(w, http.StatusInternalServerError, nil, fmt.Errorf("生成 token 失败"))
 		return
 	}
 
-	sendJSONResponse(w, map[string]string{"token": tokenString}, nil)
+	sendJSONResponse(w, http.StatusOK, map[string]string{"token": tokenString}, nil)
 }
 
 func (hm *HTTPManager) handleGetRoomAliasByUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		sendJSONResponse(w, nil, fmt.Errorf("方法不允许"))
+		sendJSONResponse(w, http.StatusNotFound, nil, fmt.Errorf("方法不允许"))
 		return
 	}
 
 	// 从 auth 中获取 userID
 	userID, ok := r.Context().Value("userID").(uint)
 	if !ok {
-		sendJSONResponse(w, nil, fmt.Errorf("无法获取用户ID"))
+		sendJSONResponse(w, http.StatusUnauthorized, nil, fmt.Errorf("无法获取用户ID"))
 		return
 	}
 
 	roomIDStr := r.URL.Query().Get("room_id")
 	if roomIDStr == "" {
-		sendJSONResponse(w, nil, fmt.Errorf("缺少房间ID"))
+		sendJSONResponse(w, http.StatusBadRequest, nil, fmt.Errorf("缺少房间ID"))
 		return
 	}
 	roomID, err := strconv.ParseUint(roomIDStr, 10, 32)
 	if err != nil {
-		sendJSONResponse(w, nil, fmt.Errorf("无效的房间ID: %s", roomIDStr))
+		sendJSONResponse(w, http.StatusBadRequest, nil, fmt.Errorf("无效的房间ID: %s", roomIDStr))
 		return
 	}
 
 	aliases, err := hm.baseInstance.DbManager.GetRoomAliasByUsers(userID, uint(roomID))
 	if err != nil {
-		sendJSONResponse(w, nil, err)
+		sendJSONResponse(w, http.StatusInternalServerError, nil, err)
 		return
 	}
 
-	sendJSONResponse(w, aliases, nil)
+	sendJSONResponse(w, http.StatusOK, aliases, nil)
+}
+
+func (hm *HTTPManager) SetupRoutes(r *mux.Router) {
+	r.HandleFunc("/api/ping", handlers.Ping).Methods("GET")
+	r.HandleFunc("/api/login", hm.handleLogin).Methods("POST")
+	r.HandleFunc("/api/register", hm.handleRegister).Methods("POST")
+
+	// 受保护的路由
+	protected := r.PathPrefix("/api").Subrouter()
+	protected.Use(middleware.AuthMiddleware)
+
+	protected.HandleFunc("/users", hm.handleUsers).Methods("GET")
+	protected.HandleFunc("/rooms", hm.handleRooms).Methods("GET")
+	protected.HandleFunc("/message", hm.handleMessage).Methods("POST")
+	protected.HandleFunc("/room-members", hm.handleRoomMembers).Methods("POST", "DELETE", "PUT")
+	protected.HandleFunc("/room-privacy", hm.handleSetRoomPrivacy).Methods("PUT")
+	protected.HandleFunc("/getRoomAliasByUsers", hm.handleGetRoomAliasByUsers).Methods("GET")
+
+	protected.HandleFunc("/users/{id:[0-9]+}", hm.handleUserByID).Methods("GET", "PUT", "DELETE")
+	protected.HandleFunc("/rooms/{id:[0-9]+}", hm.handleRoomByID).Methods("GET", "PUT", "DELETE")
 }

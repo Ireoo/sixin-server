@@ -2,6 +2,10 @@ package base
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,13 +24,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/zishang520/socket.io/v2/socket"
 	"gopkg.in/gomail.v2"
-
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -291,13 +288,10 @@ const (
 
 // 洋葱加密
 func (b *Base) OnionEncrypt(data []byte, masterKey []byte) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte(currentVersion)
 	salt := make([]byte, saltSize)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, err
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, fmt.Errorf("生成盐失败: %w", err)
 	}
-	buf.Write(salt)
 
 	encryptedData := data
 	for i := 0; i < layerCount; i++ {
@@ -305,52 +299,37 @@ func (b *Base) OnionEncrypt(data []byte, masterKey []byte) ([]byte, error) {
 		var err error
 		encryptedData, err = b.encryptAES(encryptedData, layerKey)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("加密第 %d 层失败: %w", i+1, err)
 		}
 	}
-	buf.Write(encryptedData)
 
-	// HMAC 计算
-	h := hmac.New(sha256.New, masterKey)
-	h.Write(buf.Bytes()[versionSize+saltSize:])
-	buf.Write(h.Sum(nil))
+	result := make([]byte, 1+saltSize+len(encryptedData))
+	result[0] = currentVersion
+	copy(result[1:], salt)
+	copy(result[1+saltSize:], encryptedData)
 
-	return buf.Bytes(), nil
+	return result, nil
 }
 
 // 洋葱解密
 func (b *Base) OnionDecrypt(data []byte, masterKey []byte) ([]byte, error) {
-	if len(data) < versionSize+saltSize {
+	if len(data) < 1+saltSize {
 		return nil, fmt.Errorf("数据太短")
 	}
 
-	version, salt := data[:versionSize], data[versionSize:versionSize+saltSize]
-
-	if version[0] != currentVersion {
-		return nil, fmt.Errorf("不支持的版本")
+	if data[0] != currentVersion {
+		return nil, fmt.Errorf("不支持的版本: %d", data[0])
 	}
 
-	macSize := sha256.Size
-	if len(data) < versionSize+saltSize+macSize {
-		return nil, fmt.Errorf("数据太短")
-	}
-
-	encryptedData, mac := data[versionSize+saltSize:len(data)-macSize], data[len(data)-macSize:]
-
-	// 验证 HMAC
-	h := hmac.New(sha256.New, masterKey)
-	h.Write(encryptedData)
-	expectedMac := h.Sum(nil)
-	if subtle.ConstantTimeCompare(mac, expectedMac) != 1 {
-		return nil, fmt.Errorf("MAC 验证失败")
-	}
+	salt := data[1 : 1+saltSize]
+	encryptedData := data[1+saltSize:]
 
 	for i := layerCount - 1; i >= 0; i-- {
 		layerKey := deriveKey(masterKey, salt, i)
 		var err error
 		encryptedData, err = b.decryptAES(encryptedData, layerKey)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("解密第 %d 层失败: %w", layerCount-i, err)
 		}
 	}
 

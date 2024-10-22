@@ -7,6 +7,7 @@ import (
 
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/internal/middleware"
+	"github.com/Ireoo/sixin-server/logger"
 	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 )
@@ -69,15 +70,14 @@ func (sim *SocketIOManager) authMiddleware(next func(*socket.Socket, ...any)) fu
 			return
 		}
 
-		// 初始化自定义属性
 		sim.socketData.Lock()
-		sim.socketData.data[s] = make(map[string]interface{})
-		sim.socketData.data[s]["userID"] = userID
+		sim.socketData.data[s] = map[string]interface{}{"userID": userID}
 		sim.socketData.Unlock()
 
 		sim.userSocketMap.Lock()
 		sim.userSocketMap.data[userID] = s
 		sim.userSocketMap.Unlock()
+
 		next(s, args...)
 	}
 }
@@ -94,13 +94,13 @@ func (sim *SocketIOManager) SetupSocketHandlers() *socket.Server {
 
 func (sim *SocketIOManager) handleConnection(clients ...any) {
 	client := clients[0].(*socket.Socket)
-	fmt.Println("新连接：", client.Id())
+	logger.Info(fmt.Sprintf("新连接：%s", client.Id()))
 
 	sim.emitInitialState(client)
 	sim.registerClientHandlers(client)
 
 	client.On("disconnecting", func(reason ...any) {
-		fmt.Println("连接断开:", client.Id(), reason)
+		logger.Info(fmt.Sprintf("连接断开: %s, 原因: %v", client.Id(), reason))
 		sim.cleanupPeerConnection(client.Id())
 	})
 }
