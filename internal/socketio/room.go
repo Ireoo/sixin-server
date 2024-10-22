@@ -11,38 +11,33 @@ import (
 func (sim *SocketIOManager) handleGetRooms(client *socket.Socket, args ...any) {
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 	rooms, err := sim.baseInstance.DbManager.GetRooms(userID)
 	if err != nil {
-		client.Emit("error", err.Error())
+		emitError(client, "获取房间列表失败", err)
 		return
 	}
 	client.Emit("getRooms", rooms)
 }
 
 func (sim *SocketIOManager) handleGetRoomByUsers(client *socket.Socket, args ...any) {
-	if len(args) == 0 {
-		client.Emit("error", "缺少房间ID")
+	roomID, err := checkArgsAndType[uint](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
 		return
 	}
 
-	roomID, ok := args[0].(uint)
-	if !ok {
-		client.Emit("error", "房间ID格式错误")
-		return
-	}
-	// 从 auth 中获取 userID
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	aliases, err := sim.baseInstance.DbManager.GetRoomAliasByUsers(userID, roomID)
 	if err != nil {
-		client.Emit("error", "获取房间别名失败: "+err.Error())
+		emitError(client, "获取房间别名失败", err)
 		return
 	}
 
@@ -50,25 +45,26 @@ func (sim *SocketIOManager) handleGetRoomByUsers(client *socket.Socket, args ...
 }
 
 func (sim *SocketIOManager) handleCreateRoom(client *socket.Socket, args ...any) {
-	if len(args) == 0 {
-		client.Emit("error", "缺少房间数据")
+	data, err := checkArgsAndType[string](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间数据或数据类型错误", err)
 		return
 	}
 
 	var room models.Room
-	if err := json.Unmarshal([]byte(args[0].(string)), &room); err != nil {
-		client.Emit("error", "无效的房间数据")
+	if err := json.Unmarshal([]byte(data), &room); err != nil {
+		emitError(client, "无效的房间数据", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 	room.OwnerID = userID
 	if err := sim.baseInstance.DbManager.CreateRoom(&room); err != nil {
-		client.Emit("error", "创建房间失败")
+		emitError(client, "创建房间失败", err)
 		return
 	}
 
@@ -78,40 +74,41 @@ func (sim *SocketIOManager) handleCreateRoom(client *socket.Socket, args ...any)
 }
 
 func (sim *SocketIOManager) handleUpdateRoom(client *socket.Socket, args ...any) {
-	if len(args) < 1 {
-		client.Emit("error", "缺少房间更新数据")
+	data, err := checkArgsAndType[string](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间更新数据或数据类型错误", err)
 		return
 	}
 
 	var updatedRoom models.Room
-	if err := json.Unmarshal([]byte(args[0].(string)), &updatedRoom); err != nil {
-		client.Emit("error", "无效的房间数据")
+	if err := json.Unmarshal([]byte(data), &updatedRoom); err != nil {
+		emitError(client, "无效的房间数据", err)
 		return
 	}
 
 	if updatedRoom.ID == 0 {
-		client.Emit("error", "房间ID无效")
+		emitError(client, "房间ID无效", nil)
 		return
 	}
 
 	if updatedRoom.OwnerID == 0 {
-		client.Emit("error", "房间所有者ID无效")
+		emitError(client, "房间所有者ID无效", nil)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	if sim.baseInstance.DbManager.CheckUserRoom(userID, updatedRoom.ID) != nil {
-		client.Emit("error", "没有权限更新房间")
+		emitError(client, "没有权限更新房间", nil)
 		return
 	}
 
 	if err := sim.baseInstance.DbManager.UpdateRoomByOwner(userID, updatedRoom.ID, updatedRoom); err != nil {
-		client.Emit("error", "更新房间失败")
+		emitError(client, "更新房间失败", err)
 		return
 	}
 
@@ -119,58 +116,53 @@ func (sim *SocketIOManager) handleUpdateRoom(client *socket.Socket, args ...any)
 }
 
 func (sim *SocketIOManager) handleDeleteRoom(client *socket.Socket, args ...any) {
-	if len(args) == 0 {
-		client.Emit("error", "缺少房间ID")
+	roomIDStr, err := checkArgsAndType[string](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
 		return
 	}
 
-	roomID := args[0].(string)
-	roomIDUint, err := strconv.ParseUint(roomID, 10, 64)
+	roomIDUint, err := strconv.ParseUint(roomIDStr, 10, 64)
 	if err != nil {
-		client.Emit("error", "无效的房间ID")
+		emitError(client, "无效的房间ID", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	if sim.baseInstance.DbManager.CheckUserRoom(userID, uint(roomIDUint)) != nil {
-		client.Emit("error", "没有权限更新房间")
+		emitError(client, "没有权限更新房间", nil)
 		return
 	}
 
 	if err := sim.baseInstance.DbManager.DeleteRoom(userID, uint(roomIDUint)); err != nil {
-		client.Emit("error", "删除房间失败")
+		emitError(client, "删除房间失败", err)
 		return
 	}
 
-	client.Emit("roomDeleted", roomID)
+	client.Emit("roomDeleted", roomIDStr)
 }
 
 func (sim *SocketIOManager) handleAddUserToRoom(client *socket.Socket, args ...any) {
-	if len(args) < 1 {
-		client.Emit("error", "缺少房间ID")
+	roomID, err := checkArgsAndType[uint](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
-		return
-	}
-	roomID, ok := args[0].(uint)
-
-	if !ok {
-		client.Emit("error", "无效的房间ID")
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	err = sim.baseInstance.DbManager.AddUserToRoom(userID, roomID, "", false)
 	if err != nil {
-		client.Emit("error", "将用户添加到房间失败: "+err.Error())
+		emitError(client, "将用户添加到房间失败", err)
 		return
 	}
 
@@ -178,26 +170,21 @@ func (sim *SocketIOManager) handleAddUserToRoom(client *socket.Socket, args ...a
 }
 
 func (sim *SocketIOManager) handleRemoveUserFromRoom(client *socket.Socket, args ...any) {
-	if len(args) < 1 {
-		client.Emit("error", "缺少房间ID")
+	roomID, err := checkArgsAndType[uint](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
-		return
-	}
-	roomID, ok := args[0].(uint)
-
-	if !ok {
-		client.Emit("error", "无效的房间ID")
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	err = sim.baseInstance.DbManager.RemoveUserFromRoom(userID, roomID)
 	if err != nil {
-		client.Emit("error", "将用户从房间移除失败: "+err.Error())
+		emitError(client, "将用户从房间移除失败", err)
 		return
 	}
 
@@ -205,31 +192,27 @@ func (sim *SocketIOManager) handleRemoveUserFromRoom(client *socket.Socket, args
 }
 
 func (sim *SocketIOManager) handleUpdateRoomAlias(client *socket.Socket, args ...any) {
-	if len(args) < 2 {
-		client.Emit("error", "缺少房间ID或别名")
+	roomID, err := checkArgsAndType[uint](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
+		return
+	}
+
+	alias, err := checkArgsAndType[string](args, 1)
+	if err != nil {
+		emitError(client, "缺少别名或别名类型错误", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
-		return
-	}
-	roomID, ok := args[0].(uint)
-	if !ok {
-		client.Emit("error", "无效的房间ID")
-		return
-	}
-	alias, ok := args[1].(string)
-
-	if !ok {
-		client.Emit("error", "无效的参数")
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	err = sim.baseInstance.DbManager.UpdateRoomAlias(userID, roomID, alias)
 	if err != nil {
-		client.Emit("error", "更新房间别名失败: "+err.Error())
+		emitError(client, "更新房间别名失败", err)
 		return
 	}
 
@@ -237,30 +220,27 @@ func (sim *SocketIOManager) handleUpdateRoomAlias(client *socket.Socket, args ..
 }
 
 func (sim *SocketIOManager) handleSetRoomPrivacy(client *socket.Socket, args ...any) {
-	if len(args) < 3 {
-		client.Emit("error", "缺少房间ID、用户ID或隐私设置")
+	roomID, err := checkArgsAndType[uint](args, 0)
+	if err != nil {
+		emitError(client, "缺少房间ID或ID类型错误", err)
+		return
+	}
+
+	privacy, err := checkArgsAndType[bool](args, 1)
+	if err != nil {
+		emitError(client, "缺少隐私设置或设置类型错误", err)
 		return
 	}
 
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "获取用户ID失败: "+err.Error())
-		return
-	}
-	roomID, ok := args[0].(uint)
-	if !ok {
-		client.Emit("error", "无效的房间ID")
-		return
-	}
-	privacy, ok := args[2].(bool)
-	if !ok {
-		client.Emit("error", "无效的参数")
+		emitError(client, "获取用户ID失败", err)
 		return
 	}
 
 	err = sim.baseInstance.DbManager.SetRoomPrivacy(roomID, userID, privacy)
 	if err != nil {
-		client.Emit("error", "设置房间隐私失败: "+err.Error())
+		emitError(client, "设置房间隐私失败", err)
 		return
 	}
 

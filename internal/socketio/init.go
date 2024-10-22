@@ -7,7 +7,6 @@ import (
 
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/internal/middleware"
-
 	"github.com/pion/webrtc/v3"
 	"github.com/zishang520/socket.io/v2/socket"
 )
@@ -58,19 +57,19 @@ func (sim *SocketIOManager) authMiddleware(next func(*socket.Socket, ...any)) fu
 	return func(s *socket.Socket, args ...any) {
 		token, _ := s.Request().Query().Get("token")
 		if token == "" {
-			s.Emit("error", "未提供身份验证令牌")
+			emitError(s, "未提供身份验证令牌", nil)
 			s.Disconnect(true)
 			return
 		}
 
 		userID, err := middleware.ValidateToken(token)
 		if err != nil {
-			s.Emit("error", "无效的身份验证令牌")
+			emitError(s, "无效的身份验证令牌", err)
 			s.Disconnect(true)
 			return
 		}
 
-		// // 初始化自定义属性
+		// 初始化自定义属性
 		sim.socketData.Lock()
 		sim.socketData.data[s] = make(map[string]interface{})
 		sim.socketData.data[s]["userID"] = userID
@@ -152,14 +151,14 @@ func (sim *SocketIOManager) handleSelf(client *socket.Socket, args ...any) {
 	// 获取当前用户ID
 	userID, err := sim.getUserIDFromSocket(client)
 	if err != nil {
-		client.Emit("error", "无法获取用户信息")
+		emitError(client, "无法获取用户信息", err)
 		return
 	}
 
 	// 从数据库或缓存中获取用户详细信息
 	userInfo, err := sim.baseInstance.DbManager.GetUserInfo(userID)
 	if err != nil {
-		client.Emit("error", "获取用户信息失败")
+		emitError(client, "获取用户信息失败", err)
 		return
 	}
 
