@@ -2,8 +2,10 @@ package socketio
 
 import (
 	"fmt"
+	"github.com/patrickmn/go-cache"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/Ireoo/sixin-server/base"
 	"github.com/Ireoo/sixin-server/internal/middleware"
@@ -13,25 +15,19 @@ import (
 )
 
 type socketData struct {
-	sync.RWMutex
-	data map[*socket.Socket]map[string]interface{}
+	data sync.Map // 使用 sync.Map 来提高并发性能并减少锁竞争
 }
 
 func newSocketData() *socketData {
-	return &socketData{
-		data: make(map[*socket.Socket]map[string]interface{}),
-	}
+	return &socketData{}
 }
 
 type userSocketMap struct {
-	sync.RWMutex
-	data map[uint]*socket.Socket
+	data sync.Map // 使用 sync.Map 来降低锁的开销并提升并发性能
 }
 
 func newUserSocketMap() *userSocketMap {
-	return &userSocketMap{
-		data: make(map[uint]*socket.Socket),
-	}
+	return &userSocketMap{}
 }
 
 type SocketIOManager struct {
@@ -42,6 +38,7 @@ type SocketIOManager struct {
 
 	userSocketMap *userSocketMap
 	socketData    *socketData
+	cache         *cache.Cache
 }
 
 func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
@@ -51,6 +48,7 @@ func NewSocketIOManager(baseInst *base.Base) *SocketIOManager {
 		peerConnections: make(map[string]*webrtc.PeerConnection),
 		userSocketMap:   newUserSocketMap(),
 		socketData:      newSocketData(),
+		cache:           cache.New(5*time.Minute, 10*time.Minute), // 初始化缓存，设置默认过期时间为 5 分钟
 	}
 }
 
@@ -70,13 +68,8 @@ func (sim *SocketIOManager) authMiddleware(next func(*socket.Socket, ...any)) fu
 			return
 		}
 
-		sim.socketData.Lock()
-		sim.socketData.data[s] = map[string]interface{}{"userID": userID}
-		sim.socketData.Unlock()
-
-		sim.userSocketMap.Lock()
-		sim.userSocketMap.data[userID] = s
-		sim.userSocketMap.Unlock()
+		sim.socketData.data.Store(s, map[string]interface{}{"userID": userID})
+		sim.userSocketMap.data.Store(userID, s)
 
 		next(s, args...)
 	}
@@ -88,21 +81,39 @@ func (sim *SocketIOManager) SetupSocketHandlers() *socket.Server {
 			next(nil)
 		})(s)
 	})
-	sim.Io.On("connection", sim.handleConnection)
+	sim.Io.On("connection", func(clients ...any) {
+		client := clients[0].(*socket.Socket)
+		sim.handleConnection(client)
+	})
+	sim.Io.On("connection_timeout", func(clients ...any) {
+		client := clients[0].(*socket.Socket)
+		log.Printf("连接超时: %s", client.Id())
+		client.Disconnect(false)
+	})
 	return sim.Io
 }
 
 func (sim *SocketIOManager) handleConnection(clients ...any) {
 	client := clients[0].(*socket.Socket)
-	logger.Info(fmt.Sprintf("新连接：%s", client.Id()))
+	go func(client *socket.Socket) { // 使用 goroutine 处理新连接，避免单线程性能瓶颈
+		logger.Info(fmt.Sprintf("新连接：%s", client.Id()))
 
-	sim.emitInitialState(client)
-	sim.registerClientHandlers(client)
+		sim.emitInitialState(client)
+		sim.registerClientHandlers(client)
 
-	client.On("disconnecting", func(reason ...any) {
-		logger.Info(fmt.Sprintf("连接断开: %s, 原因: %v", client.Id(), reason))
-		sim.cleanupPeerConnection(client.Id())
-	})
+		client.On("disconnecting", func(reason ...any) {
+			logger.Info(fmt.Sprintf("连接断开: %s, 原因: %v", client.Id(), reason))
+			sim.cleanupPeerConnection(client.Id())
+		})
+
+		// 添加连接超时检测
+		time.AfterFunc(30*time.Minute, func() {
+			if client.Connected() {
+				log.Printf("连接超时未活动，断开连接: %s", client.Id())
+				client.Disconnect(true)
+			}
+		})
+	}(client)
 }
 
 func (sim *SocketIOManager) emitInitialState(client *socket.Socket) {
@@ -141,8 +152,9 @@ func (sim *SocketIOManager) registerClientHandlers(client *socket.Socket) {
 	}
 
 	for event, handler := range events {
+		h := handler
 		client.On(event, func(args ...any) {
-			handler(client, args...)
+			h(client, args...)
 		})
 	}
 }
@@ -155,12 +167,21 @@ func (sim *SocketIOManager) handleSelf(client *socket.Socket, args ...any) {
 		return
 	}
 
+	// 尝试从缓存中获取用户信息
+	if cachedUserInfo, found := sim.cache.Get(fmt.Sprintf("userInfo_%d", userID)); found {
+		client.Emit("self", cachedUserInfo)
+		return
+	}
+
 	// 从数据库或缓存中获取用户详细信息
 	userInfo, err := sim.baseInstance.DbManager.GetUserInfo(userID)
 	if err != nil {
 		emitError(client, "获取用户信息失败", err)
 		return
 	}
+
+	// 缓存用户信息以减少数据库查询
+	sim.cache.Set(fmt.Sprintf("userInfo_%d", userID), userInfo, cache.DefaultExpiration)
 
 	// 返回用户信息
 	client.Emit("self", userInfo)
@@ -182,29 +203,49 @@ func (sim *SocketIOManager) handleEmail(client *socket.Socket, args ...any) {
 }
 
 func (sim *SocketIOManager) SendMessageToUsers(message interface{}, userIDs ...uint) {
+	var wg sync.WaitGroup
+	messageQueue := make(chan uint, len(userIDs))
+
+	// 将所有用户 ID 添加到消息队列中
 	for _, userID := range userIDs {
-		sim.userSocketMap.RLock()
-		client, exists := sim.userSocketMap.data[userID]
-		sim.userSocketMap.RUnlock()
-
-		if !exists {
-			log.Printf("用户 %d 未找到对应的客户端", userID)
-			continue
-		}
-
-		err := client.Emit("message", message)
-		if err != nil {
-			log.Printf("发送消息给用户 %d 失败: %v", userID, err)
-		}
+		messageQueue <- userID
 	}
+	close(messageQueue)
+
+	// 使用多个 goroutine 并发处理消息发送
+	workerCount := 10 // 可以根据实际情况调整并发数量
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for userID := range messageQueue {
+				clientInterface, exists := sim.userSocketMap.data.Load(userID)
+				if !exists {
+					log.Printf("用户 %d 未找到对应的客户端", userID)
+					continue
+				}
+
+				client := clientInterface.(*socket.Socket)
+				err := client.Emit("message", message)
+				if err != nil {
+					log.Printf("发送消息给用户 %d 失败: %v", userID, err)
+				}
+			}
+		}()
+	}
+
+	// 等待所有 goroutine 完成
+	wg.Wait()
 }
 
 // 提取通用的从 socketData 获取 userID 的逻辑
 func (sim *SocketIOManager) getUserIDFromSocket(client *socket.Socket) (uint, error) {
-	sim.socketData.RLock()
-	defer sim.socketData.RUnlock()
+	value, ok := sim.socketData.data.Load(client)
+	if !ok {
+		return 0, fmt.Errorf("未找到用户数据")
+	}
 
-	userID, ok := sim.socketData.data[client]["userID"].(uint)
+	userID, ok := value.(map[string]interface{})["userID"].(uint)
 	if !ok {
 		return 0, fmt.Errorf("userID 类型转换失败")
 	}

@@ -64,6 +64,7 @@ func (sim *SocketIOManager) handleOffer(client *socket.Socket, sdp ...any) {
 		return
 	}
 
+	// Lock only for the duration of the map update
 	sim.pcMutex.Lock()
 	sim.peerConnections[string(client.Id())] = peerConnection
 	sim.pcMutex.Unlock()
