@@ -15,7 +15,6 @@ import (
 // Config holds the application configuration
 type Config struct {
 	Host              string
-	StunPort          int
 	Port              int
 	DBType            string
 	DBConn            string
@@ -36,7 +35,6 @@ func InitConfig() *Config {
 	pflag.String("db-uri", "", "数据库连接地址")
 	pflag.String("host", "", "服务器主机名")
 	pflag.Int("port", 0, "服务器端口")
-	pflag.Int("stun-port", 0, "STUN 服务器端口")
 	pflag.Bool("test", false, "测试模式，启动后立即关闭")
 	pflag.Bool("enable-feature", false, "是否启用某个功能")
 	pflag.Parse()
@@ -53,7 +51,6 @@ func InitConfig() *Config {
 	// Set default values
 	viper.SetDefault("host", "0.0.0.0")
 	viper.SetDefault("port", 80)
-	viper.SetDefault("stun-port", 3478)
 	viper.SetDefault("db-type", "sqlite")
 	viper.SetDefault("db-uri", "./database.db")
 	viper.SetDefault("enable-feature", false)
@@ -62,7 +59,6 @@ func InitConfig() *Config {
 	config := &Config{
 		Host:              getStringConfig("host"),
 		Port:              getIntConfig("port"),
-		StunPort:          getIntConfig("stun-port"),
 		DBType:            getStringConfig("db-type"),
 		DBConn:            getStringConfig("db-uri"),
 		TestMode:          viper.GetBool("test"),
@@ -102,17 +98,14 @@ func (c *Config) Validate() error {
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("无效的服务器端口号: %d", c.Port)
 	}
-	if c.StunPort <= 0 || c.StunPort > 65535 {
-		return fmt.Errorf("无效的 STUN 服务器端口号: %d", c.StunPort)
-	}
 	// 添加其他验证逻辑
 	return nil
 }
 
 // String returns a string representation of the configuration
 func (c *Config) String() string {
-	return fmt.Sprintf("Host: %s, STUN Port: %d, Port: %d, DB Type: %s, DB Conn: %s, Test Mode: %v, Enable Feature: %v",
-		c.Host, c.StunPort, c.Port, c.DBType, c.DBConn, c.TestMode, c.EnableSomeFeature)
+	return fmt.Sprintf("Host: %s, Port: %d, DB Type: %s, DB Conn: %s, Test Mode: %v, Enable Feature: %v",
+		c.Host, c.Port, c.DBType, c.DBConn, c.TestMode, c.EnableSomeFeature)
 }
 
 func LoadConfig(filePath string) (*Config, error) {

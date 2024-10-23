@@ -172,7 +172,7 @@ func (sim *SocketIOManager) handleReceive(client *socket.Socket, args ...any) {
 	if !sim.baseInstance.ReceiveDevice {
 		message = "wechat:message"
 	}
-	sim.baseInstance.SendMessage(message, message)
+	sim.baseInstance.SendMessage(message)
 	client.Emit("receive", sim.baseInstance.ReceiveDevice)
 }
 
