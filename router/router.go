@@ -9,7 +9,6 @@ import (
 	"github.com/Ireoo/sixin-server/config"
 	httpHandler "github.com/Ireoo/sixin-server/internal/http"
 	"github.com/Ireoo/sixin-server/internal/socketio"
-	"github.com/Ireoo/sixin-server/internal/websocket"
 	"github.com/Ireoo/sixin-server/logger"
 	"github.com/gorilla/mux"
 )
@@ -31,10 +30,6 @@ func SetupAndRun(cfg *config.Config) {
 	// 设置 HTTP 处理程序
 	httpManager := httpHandler.NewHTTPManager(baseInstance)
 	httpManager.SetupRoutes(r)
-
-	// 设置 WebSocket 路由
-	WebSocketManager := websocket.NewWebSocketManager(baseInstance)
-	r.HandleFunc("/ws", WebSocketManager.HandleWebSocket)
 
 	// 创建 http.Server 实例
 	serverInstance := &http.Server{
