@@ -8,12 +8,17 @@ func GetAllModels() []interface{} {
 	return []interface{}{
 		&User{},
 		&Room{},
-		&RoomByUser{},
 		&Message{},
 		&UserFriend{}, // 新增
 		&UserRoom{},   // 新增
 		// 在这里添加新模型
 	}
+}
+
+type Birthday struct {
+	Year  int64
+	Month int64
+	Day   int64
 }
 
 type User struct {
@@ -32,8 +37,8 @@ type User struct {
 	Alias     string
 	Avatar    string
 	City      string
-	Friend    bool
 	Gender    string
+	Birthday  *Birthday `gorm:"type:json"`
 	// 定义与 Room 的多对多关系
 	Rooms []*Room `gorm:"many2many:user_rooms;"`
 	// 定义与 Message 的一对多关系
@@ -51,17 +56,6 @@ type Room struct {
 	Admins []*User `gorm:"many2many:room_admins;"`
 	// 定义与 Message 的一对多关系
 	Messages []Message `gorm:"foreignKey:RoomID"`
-}
-
-type RoomByUser struct {
-	gorm.Model
-	UserID   uint `gorm:"not null"`
-	TargetID uint `gorm:"not null"`
-	RoomID   uint `gorm:"not null"`
-	Alias    string
-	User     *User `gorm:"foreignKey:UserID"`
-	Target   *User `gorm:"foreignKey:TargetID"`
-	Room     *Room `gorm:"foreignKey:RoomID"`
 }
 
 type Message struct {
